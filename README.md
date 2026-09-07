@@ -2,6 +2,21 @@
 
 这个仓库演示一套可由 Claude Code 与 Codex 共用的 AOSP 工作流：feature registry、会话状态、跨进程资源租约、超时/重试命令运行时，以及统一 verifier。`claude-code/` 和 `codex/` 保留各自可独立阅读的示例；新的公共能力位于 `common/.harness/`。
 
+## 适用场景与结构
+
+适合探索 AOSP 多仓开发中两个客户端如何共享 feature 合同、会话状态和验证证据。仓库包含占位源码与离线替身；接入真实系统时需要配置对应 feature 的仓库、设备和构建环境。
+
+| 路径 | 内容 |
+| --- | --- |
+| [common/](common/) | 两个客户端共用的合同解析、会话、租约、命令运行与 verifier |
+| [claude-code/](claude-code/) | Claude Code 的 hooks、skills 和 feature 示例 |
+| [codex/](codex/) | Codex 的 instructions、skills 和 feature 示例 |
+| [docs/](docs/) | 架构探索、资源租约与验证合同 |
+| [tests/](tests/) | 公共能力的离线回归与契约测试 |
+| [scripts/](scripts/) | 文档检查与质量门入口 |
+
+离线运行需要 Linux shell 环境、Bash、Git、Python 3.8+、ripgrep 和常见 Unix 工具。真实设备验证另外需要 ADB 与已配置的 Android 环境；启动客户端则需要相应 CLI 已安装并完成认证。
+
 ## 最快开始
 
 无需 AOSP 源码或 Android 设备即可运行全部离线检查：
