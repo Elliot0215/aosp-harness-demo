@@ -1,2 +1,0 @@
-common/.harness/lib/session-state-snapshot.sh
-tests/test-session-snapshot.sh

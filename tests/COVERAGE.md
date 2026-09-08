@@ -1,4 +1,5 @@
 | Test | Specs/requirements | Protected behavior | Offline boundary | Status |
 |---|---|---|---|---|
-| `tests/test-device-safety.sh` | 01 R1-R7 | Device targeting and legacy regressions | Fake ADB only | active |
-| `tests/test-quality-gate.sh` | 02 R1-R9 | Offline/CI quality-gate contract | Fixture and fake tools only | active |
+| `tests/test-device-safety.sh` | Independent examples | Device targeting and legacy regressions | Fake ADB and both example test suites | active |
+| `tests/test-docs.sh` | Example documentation | README commands and linked entry points | Local files only | active |
+| `tests/test-quality-gate.sh` | Quality gate | Offline/CI checks and tool failure handling | Fixture and fake tools only | active |

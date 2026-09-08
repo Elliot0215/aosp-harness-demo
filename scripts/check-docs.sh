@@ -6,31 +6,22 @@ fail() {
   exit 1
 }
 for path in \
-  common/.harness/bin/harness-resolve-contract \
-  common/.harness/bin/harness-client-launch \
-  common/.harness/bin/harness-verify \
-  common/.harness/bin/run-command.sh \
-  docs/verifier-contract.md \
-  common/README.md; do
-  [[ -e $root/$path ]] || fail "missing $path"
+  claude-code/README.md \
+  codex/README.md \
+  docs/AOSP整机源码Harness工程探索-claude版.md \
+  docs/AOSP整机源码Harness工程探索-codex版.md; do
+  [[ -f $root/$path ]] || fail "missing $path"
 done
-for executable in \
-  common/.harness/bin/harness-resolve-contract \
-  common/.harness/bin/harness-client-launch \
-  common/.harness/bin/harness-verify \
-  common/.harness/bin/run-command.sh; do
+for executable in claude-code/run-demo.sh codex/run-demo.sh; do
   [[ -x $root/$executable ]] || fail "not executable: $executable"
 done
 for phrase in \
   'bash scripts/check.sh --offline' \
-  'harness-resolve-contract' \
-  'harness-client-launch' \
-  'harness-verify dev-sidebar --demo' \
-  'ANDROID_INSTANCE_ID' \
-  'contract_version=v2' \
+  'bash claude-code/run-demo.sh' \
+  'bash codex/run-demo.sh' \
+  'claude-code/README.md' \
+  'codex/README.md' \
   'RESULT PASS'; do
   grep -Fq "$phrase" "$root/README.md" || fail "README missing: $phrase"
 done
-grep -Fq 'docs/verifier-contract.md' "$root/README.md" || fail 'verifier contract link'
-grep -Fq 'common/README.md' "$root/README.md" || fail 'common README link'
 printf 'RESULT PASS  docs readiness\n'

@@ -1,2 +1,0 @@
-rm 'common/.harness/lib/session-state-signals.sh'
-rm 'tests/test-session-signals.sh'

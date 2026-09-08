@@ -2,6 +2,13 @@
 
 # 从逻辑入口（<root>/.claude/...）或物理入口
 # （<root>/features/.harness/...）都能解析出工程根目录。
+valid_feature_name() {
+  local feature="$1"
+  local LC_ALL=C
+
+  [[ $feature =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
 harness_project_root() {
   local script_dir="$1"
   local candidate
@@ -30,15 +37,31 @@ detect_feature() {
     candidate="$(git -C "$root/$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
     if [[ -n "$candidate" && "$candidate" != "HEAD" ]]; then
       printf '%s\n' "$candidate"
+      valid_feature_name "$candidate" || return 2
       return 0
     fi
   done
 
-  if [[ -f "$root/CURRENT_FEATURE" ]]; then
-    tr -d '[:space:]' < "$root/CURRENT_FEATURE"
-    return 0
+  [[ -f $root/CURRENT_FEATURE ]] || return 1
+  if ! candidate="$(
+    python3 - "$root/CURRENT_FEATURE" <<'PY'
+import re
+import sys
+
+try:
+    data = open(sys.argv[1], "rb").read()
+except OSError:
+    raise SystemExit(1)
+match = re.fullmatch(rb"([A-Za-z0-9][A-Za-z0-9._-]*)(?:\n)?", data)
+if match is None:
+    raise SystemExit(1)
+sys.stdout.buffer.write(match.group(1))
+PY
+  )"; then
+    return 2
   fi
-  return 1
+  printf '%s\n' "$candidate"
+  valid_feature_name "$candidate" || return 2
 }
 
 feature_context_path() {
@@ -46,7 +69,8 @@ feature_context_path() {
   local feature="$2"
   local target="features/$feature/CLAUDE.md"
 
-  [[ -n "$feature" && -f "$root/$target" ]] || return 1
+  valid_feature_name "$feature" || return 1
+  [[ -f "$root/$target" ]] || return 1
   printf '%s\n' "$target"
 }
 
@@ -62,6 +86,7 @@ sync_feature_link() {
   local backup=""
   local pending="${link}.new.$$"
 
+  # shellcheck disable=SC2034 # Public result consumed by scripts that source this library.
   FEATURE_LINK_CHANGED=0
 
   if [[ "$target" == /* || ! -f "$root/$target" ]]; then
@@ -101,5 +126,6 @@ sync_feature_link() {
     return 1
   fi
 
+  # shellcheck disable=SC2034 # Public result consumed by scripts that source this library.
   FEATURE_LINK_CHANGED=1
 }

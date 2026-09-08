@@ -1,4 +1,0 @@
-command: bash ./tests/test-session-path.sh --case roots-static
-exit: 1
-stdout: empty
-stderr: FAIL root HARNESS: python path engine missing

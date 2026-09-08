@@ -167,30 +167,31 @@ command hook 从标准输入接收 JSON。常用公共字段包括 `session_id`�
 
 ```text
 codex/
-├── README.md
-├── AOSP整机源码Codex-Harness工程探索.md
 ├── CURRENT_FEATURE
 ├── AGENTS.md -> features/dev-sidebar/AGENTS.md
 ├── run-demo.sh
-├── .codex/
-│   ├── bin/
-│   │   ├── codex-feature
-│   │   └── check-process-layer
-│   ├── hooks.json
-│   └── hooks/
-│       ├── feature-common.sh
-│       ├── session-start.sh
-│       └── check-branch-drift.sh
-├── .agents/skills/
-│   ├── build-services-jar/SKILL.md
-│   └── build-sepolicy/SKILL.md
-├── features/dev-sidebar/
-│   ├── AGENTS.md
-│   ├── repos.tsv
-│   ├── check-branch.sh
-│   └── verify-sidebar.sh
-└── tests/test-harness.sh
+├── .codex -> features/.harness/codex
+├── .agents/
+│   └── skills -> ../features/.harness/skills
+├── features/                          # 真实 AOSP 中可独立成 Git 仓
+│   ├── install-harness.sh
+│   ├── .harness/                      # Codex 自己的通用 Harness
+│   │   ├── codex/
+│   │   │   ├── bin/{codex-feature,check-process-layer}
+│   │   │   ├── hooks.json
+│   │   │   └── hooks/{feature-common,session-start,check-branch-drift}.sh
+│   │   └── skills/
+│   │       ├── build-services-jar/SKILL.md
+│   │       └── build-sepolicy/SKILL.md
+│   └── dev-sidebar/
+│       ├── AGENTS.md
+│       ├── repos.tsv
+│       ├── check-branch.sh
+│       └── verify-sidebar.sh
+└── tests/{test-harness,test-install-harness}.sh
 ```
+
+通用脚本、hooks 与 skills 的物理源集中在 `features/.harness/`。真实 AOSP 中可把整个 `features/` 独立成 Git 仓，复制时须包含隐藏目录。在树根运行 `bash features/install-harness.sh` 创建 `.codex` 与 `.agents/skills` 相对软链；安装器可重复执行，冲突时拒绝覆盖。切换 feature 仍由 wrapper 在启动新会话前更新根 `AGENTS.md`，无需复制通用 Harness。
 
 ### 3.2 三层职责
 
@@ -214,7 +215,7 @@ codex/
 
 ### 3.4 为什么第一版不做 plugin，也不依赖索引
 
-plugin 适合分发多个 skills、hooks、MCP 配置和资产，但这个 demo 首先要证明的是仓内协议本身。第一版直接使用 Codex 原生文件位置，便于阅读、审计和测试；等多个团队需要安装、升级、统一版本时，再把稳定部分打包。
+plugin 适合分发多个 skills、hooks、MCP 配置和资产，但这个 demo 首先要证明的是仓内协议本身。本版把物理源集中在 `features/.harness/`，通过相对软链暴露 Codex 标准文件位置，便于阅读、审计和测试；等多个团队需要安装、升级、统一版本时，再把稳定部分打包。
 
 同理，索引可以是未来增强，却不应成为首次运行前置条件。AOSP checkout、分支和生成状态经常变化；零准备的 live-source 路径更适合作为保底导航。若未来接入语义索引，应把索引 freshness 和覆盖率也纳入验证，不能静默替换当前事实来源。
 

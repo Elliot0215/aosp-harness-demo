@@ -67,6 +67,9 @@ elif [[ -e AGENTS.md ]]; then
   exit 1
 fi
 
+section '0. 安装 Harness 标准入口'
+./features/install-harness.sh
+
 section '1. 上下文选择（Context selection）'
 ./.codex/bin/codex-feature --dry-run
 printf 'AGENTS.md -> %s\n' "$(readlink AGENTS.md)"
@@ -78,34 +81,34 @@ STATE_DIR="$DEMO_TMP_DIR/state"
 mkdir -p \
   "$DRIFT_ROOT/features/dev-sidebar" \
   "$DRIFT_ROOT/features/dev-next"
-printf '%s\n' 'dev-sidebar' > "$DRIFT_ROOT/CURRENT_FEATURE"
+printf '%s\n' 'dev-sidebar' >"$DRIFT_ROOT/CURRENT_FEATURE"
 printf '%s\n' '# demo context: dev-sidebar' \
-  > "$DRIFT_ROOT/features/dev-sidebar/AGENTS.md"
+  >"$DRIFT_ROOT/features/dev-sidebar/AGENTS.md"
 printf '%s\n' '# demo context: dev-next' \
-  > "$DRIFT_ROOT/features/dev-next/AGENTS.md"
+  >"$DRIFT_ROOT/features/dev-next/AGENTS.md"
 
 session_payload='{"session_id":"demo-session","cwd":".","hook_event_name":"SessionStart"}'
 prompt_payload='{"session_id":"demo-session","cwd":".","hook_event_name":"UserPromptSubmit"}'
-printf '%s\n' "$session_payload" | \
-  HARNESS_ROOT="$DRIFT_ROOT" CODEX_HARNESS_STATE_DIR="$STATE_DIR" \
-  ./.codex/hooks/session-start.sh
+printf '%s\n' "$session_payload" \
+  | HARNESS_ROOT="$DRIFT_ROOT" CODEX_HARNESS_STATE_DIR="$STATE_DIR" \
+    ./.codex/hooks/session-start.sh
 echo '[demo] 已记录 demo-session 的 dev-sidebar 快照。'
 
-no_drift_output="$(printf '%s\n' "$prompt_payload" | \
-  HARNESS_ROOT="$DRIFT_ROOT" CODEX_HARNESS_STATE_DIR="$STATE_DIR" \
-  ./.codex/hooks/check-branch-drift.sh)"
+no_drift_output="$(printf '%s\n' "$prompt_payload" \
+  | HARNESS_ROOT="$DRIFT_ROOT" CODEX_HARNESS_STATE_DIR="$STATE_DIR" \
+    ./.codex/hooks/check-branch-drift.sh)"
 if [[ -n "$no_drift_output" ]]; then
   echo 'error: 无漂移检查本应零输出' >&2
   exit 1
 fi
 echo '[demo] 无漂移：零输出。'
 
-printf '%s\n' 'dev-next' > "$DRIFT_ROOT/CURRENT_FEATURE"
-drift_output="$(printf '%s\n' "$prompt_payload" | \
-  HARNESS_ROOT="$DRIFT_ROOT" CODEX_HARNESS_STATE_DIR="$STATE_DIR" \
-  ./.codex/hooks/check-branch-drift.sh)"
-if [[ "$drift_output" != *'"continue": false'* || \
-      "$drift_output" != *"current feature is 'dev-next'"* ]]; then
+printf '%s\n' 'dev-next' >"$DRIFT_ROOT/CURRENT_FEATURE"
+drift_output="$(printf '%s\n' "$prompt_payload" \
+  | HARNESS_ROOT="$DRIFT_ROOT" CODEX_HARNESS_STATE_DIR="$STATE_DIR" \
+    ./.codex/hooks/check-branch-drift.sh)"
+if [[ "$drift_output" != *'"continue": false'* ||
+  "$drift_output" != *"current feature is 'dev-next'"* ]]; then
   echo 'error: 漂移 hook 未返回预期的结构化阻断块' >&2
   exit 1
 fi
@@ -136,6 +139,7 @@ section '6. 回归测试（Regression）'
 if [[ "${SKIP_SELF_TESTS:-0}" == 1 ]]; then
   echo '[demo] SKIP_SELF_TESTS=1，跳过自身回归测试。'
 else
+  bash ./tests/test-install-harness.sh
   ./tests/test-harness.sh
 fi
 

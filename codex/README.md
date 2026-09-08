@@ -17,7 +17,7 @@ cd codex
 ./run-demo.sh
 ```
 
-`run-demo.sh` 依次演示上下文选择、会话分支漂移、涉及仓分支一致性、流程 skills、严格验证和回归测试。它只调用 wrapper 的 `--dry-run` 模式和确定性 demo 入口。
+`run-demo.sh` 先运行幂等安装器，再依次演示上下文选择、会话分支漂移、涉及仓分支一致性、流程 skills、严格验证和回归测试。它只调用 wrapper 的 `--dry-run` 模式和确定性 demo 入口。
 
 ## Codex 与 Claude Code 版的关键差异
 
@@ -39,20 +39,25 @@ codex/
 ├── CURRENT_FEATURE
 ├── AGENTS.md -> features/dev-sidebar/AGENTS.md
 ├── run-demo.sh
-├── .codex/
-│   ├── bin/codex-feature
-│   ├── bin/check-process-layer
-│   ├── hooks.json
-│   └── hooks/{session-start,check-branch-drift}.sh
-├── .agents/skills/
-│   ├── build-services-jar/SKILL.md
-│   └── build-sepolicy/SKILL.md
-├── features/dev-sidebar/
-│   ├── AGENTS.md
-│   ├── repos.tsv
-│   ├── check-branch.sh
-│   └── verify-sidebar.sh
-└── tests/test-harness.sh
+├── .codex -> features/.harness/codex
+├── .agents/
+│   └── skills -> ../features/.harness/skills
+├── features/                          # 真实 AOSP 中可独立成 Git 仓
+│   ├── install-harness.sh
+│   ├── .harness/                      # Codex 自己的通用 Harness
+│   │   ├── codex/
+│   │   │   ├── bin/{codex-feature,check-process-layer}
+│   │   │   ├── hooks.json
+│   │   │   └── hooks/{feature-common,session-start,check-branch-drift}.sh
+│   │   └── skills/
+│   │       ├── build-services-jar/SKILL.md
+│   │       └── build-sepolicy/SKILL.md
+│   └── dev-sidebar/
+│       ├── AGENTS.md
+│       ├── repos.tsv
+│       ├── check-branch.sh
+│       └── verify-sidebar.sh
+└── tests/{test-harness,test-install-harness}.sh
 ```
 
 | 层 | 职责 | Demo 落点 |
@@ -62,6 +67,22 @@ codex/
 | ③ 验证闭环层 | 用脚本产出可审计的 PASS / FAIL / INCOMPLETE 结论 | `features/dev-sidebar/verify-sidebar.sh` |
 
 导航不单独算一层：本方案使用 **`rg` + 源码阅读**，先按仓和路径缩小范围，再搜 JNI 注册名或全限定 `Class::method`。不需要预先建立索引，也不把搜索命中误写成完整引用关系。
+
+## 安装与切换 feature
+
+在 `codex/` 或真实 AOSP 树根运行：
+
+```bash
+bash features/install-harness.sh
+./.codex/bin/codex-feature --dry-run
+./.codex/bin/codex-feature
+```
+
+安装器创建两个相对软链，可重复执行；已有普通文件、目录或其他目标的软链会使安装失败，原内容保留。已有 `.agents/` 目录中的其他文件会保留。旧布局迁移时，先备份并将原 `.codex/` 与 `.agents/skills/` 内容合并到 `features/.harness/` 对应目录，再移走旧入口并运行安装器。
+
+新增 feature 时，在 `features/<feature>/` 准备 `AGENTS.md`、`repos.tsv`、分支检查和验证脚本。真实树切换锚点仓及涉及仓分支后，通过 wrapper 启动新会话；Demo 用 `CURRENT_FEATURE` 模拟分支选择。通用 hooks 和 skills 无需随 feature 切换。会话中检测到漂移会阻断继续使用旧上下文。
+
+`.harness/` 是本 Demo 的版本管理布局；Codex 仍通过 `.codex` 和 `.agents/skills` 使用配置与 skills。[官方 skills 文档](https://learn.chatgpt.com/docs/build-skills)说明了 `.agents/skills` 的发现规则及 skill 目录软链支持。脚本从物理位置定位树根，也支持直接调用 `features/.harness/codex/bin/codex-feature`。
 
 ## ① 上下文层
 
@@ -129,8 +150,8 @@ Skills 位于 `.agents/skills`。Codex 对 skills 使用 **渐进式披露**：�
 
 ## 适配到真实 AOSP
 
-1. 把 `features/` 建成 **manifest 之外的独立 Git 仓**，由它管理 feature 上下文、涉及仓清单和验证脚本，不污染 AOSP manifest、Gerrit 或 Soong 输入。
-2. 在 AOSP 树根建立树根 `AGENTS.md` 软链，并把 `.codex/` 与 `.agents/` 暴露在同一树根；日常工作始终经过 wrapper。
+1. 把完整 `features/`（含隐藏的 `.harness/`）建成 **manifest 之外的独立 Git 仓**，统一管理通用 Harness、feature 上下文、涉及仓清单和验证脚本，不污染 AOSP manifest、Gerrit 或 Soong 输入。
+2. 在 AOSP 树根运行 `bash features/install-harness.sh`，通过 `.codex/` 与 `.agents/` 下的标准入口暴露 Harness；随后由 wrapper 选择树根 `AGENTS.md` 软链，日常工作始终经过 wrapper。
 3. 保留 `repos.tsv` 和涉及仓 checker，在开始任务前 fail closed 检查缺仓、分支漂移、detached HEAD 和非法仓库。
 4. 真实设备操作前必须显式固定 `ANDROID_SERIAL`，先校验 `adb -s "$ANDROID_SERIAL" get-state`；操作 Cuttlefish 前先用 `cvd fleet` 确认目标，再固定 `CVD_GROUP`，禁止对未选定组执行 stop/start。
 5. 把 `verify-sidebar.sh` 的 demo 数据源换成真实设备查询，保留查询失败即 FAIL、crash 时间基线、严格 SKIP 和只有 `RESULT PASS` 才能收工的语义。

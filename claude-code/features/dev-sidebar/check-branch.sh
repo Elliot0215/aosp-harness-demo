@@ -8,17 +8,27 @@ FEATURE="${FEATURE_NAME:-dev-sidebar}"
 LIST="$ROOT/features/$FEATURE/repos.tsv"
 REPOS=()
 
+valid_feature_name() {
+  local LC_ALL=C
+  [[ ${1-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+valid_feature_name "$FEATURE" || {
+  echo 'INVALID feature' >&2
+  exit 1
+}
+
 [[ -f "$LIST" ]] || {
   echo "MISSING $LIST" >&2
   exit 1
 }
 
-while read -r path convention tags rest || [[ -n "${path:-}" ]]; do
+while read -r path _convention _tags _rest || [[ -n "${path:-}" ]]; do
   case "${path:-}" in
-    ""|'#'*) continue ;;
+    "" | '#'*) continue ;;
   esac
   REPOS+=("$path")
-done < "$LIST"
+done <"$LIST"
 
 [[ ${#REPOS[@]} -gt 0 ]] || {
   echo "MISSING repos in $LIST" >&2
@@ -42,12 +52,26 @@ fi
 
 bad=0
 for repo in "${REPOS[@]}"; do
-  if ! git -C "$ROOT/$repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$ROOT/$repo"
+  if [[ ! -e "$repo_root/.git" && ! -L "$repo_root/.git" ]]; then
     echo "MISSING $repo"
     bad=1
     continue
   fi
-  branch="$(git -C "$ROOT/$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+  if ! git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "MISSING $repo"
+    bad=1
+    continue
+  fi
+  if branch="$(git -C "$repo_root" symbolic-ref --quiet --short HEAD 2>/dev/null)"; then
+    :
+  elif git -C "$repo_root" rev-parse --verify 'HEAD^{object}' >/dev/null 2>&1; then
+    branch=DETACHED
+  else
+    echo "INVALID $repo"
+    bad=1
+    continue
+  fi
   if [[ "$branch" == "$FEATURE" ]]; then
     echo "OK      $repo @ $branch"
   else

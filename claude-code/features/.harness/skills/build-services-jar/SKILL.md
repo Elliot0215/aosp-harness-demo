@@ -15,10 +15,7 @@ paths:
 ## 单编目标与产物
 
 ```bash
-command_adapter="${HARNESS_COMMAND_ADAPTER:-common/.harness/bin/run-command.sh}"
-HARNESS_SESSION_ID="${HARNESS_SESSION_ID:-manual-$$}"
-export HARNESS_SESSION_ID
-bash "$command_adapter" build workspace-build -- bash -c 'source build/envsetup.sh >/dev/null 2>&1 \
+bash -c 'source build/envsetup.sh >/dev/null 2>&1 \
   && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug >/dev/null 2>&1 \
   && m services'
 ```
@@ -29,18 +26,14 @@ bash "$command_adapter" build workspace-build -- bash -c 'source build/envsetup.
 
 ```bash
 device_serial="${ANDROID_SERIAL-}"
-instance_id="${ANDROID_INSTANCE_ID-}"
-command_adapter="${HARNESS_COMMAND_ADAPTER:-common/.harness/bin/run-command.sh}"
-if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ || ! "$instance_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
   echo 'error: set ANDROID_SERIAL to a safe, explicit target serial' >&2
   exit 2
 fi
-HARNESS_SESSION_ID="${HARNESS_SESSION_ID:-manual-$$}"
-export HARNESS_SESSION_ID ANDROID_INSTANCE_ID="$instance_id"
-bash "$command_adapter" mutate android-device -- adb -s "$device_serial" root
-bash "$command_adapter" mutate android-device -- adb -s "$device_serial" remount
-bash "$command_adapter" mutate android-device -- adb -s "$device_serial" push out/target/product/vsoc_x86_64/system/framework/services.jar /system/framework/services.jar
-bash "$command_adapter" reconnect android-device -- adb -s "$device_serial" reboot
+adb -s "$device_serial" root
+adb -s "$device_serial" remount
+adb -s "$device_serial" push out/target/product/vsoc_x86_64/system/framework/services.jar /system/framework/services.jar
+adb -s "$device_serial" reboot
 ```
 
 ## 已知坑

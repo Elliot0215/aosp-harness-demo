@@ -4,33 +4,36 @@ quality_protocol_error() {
   printf 'error: %s\n' "$*" >&2
   exit 2
 }
-[[ "$#" -eq 1 && ( "$1" == --offline || "$1" == --ci ) ]] ||
-  quality_protocol_error 'usage: scripts/check.sh --offline|--ci'
+[[ "$#" -eq 1 && ("$1" == --offline || "$1" == --ci) ]] \
+  || quality_protocol_error 'usage: scripts/check.sh --offline|--ci'
 mode="$1"
 for command_name in bash git python3 rg find sort awk sed grep sha256sum; do
-  command -v "$command_name" >/dev/null 2>&1 ||
-    quality_protocol_error "missing required command: $command_name"
+  command -v "$command_name" >/dev/null 2>&1 \
+    || quality_protocol_error "missing required command: $command_name"
 done
 repo_root="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
-cd -- "$repo_root"
+cd -- "$repo_root" || quality_protocol_error 'cannot enter repository root'
 quality_list_shell_files() {
-  find . -path './.git' -prune -o -path './.spec' -prune -o -type f -print0 |
-    while IFS= read -r -d '' path; do
+  find . -path './.git' -prune -o -path './.spec' -prune -o -type f -print0 \
+    | while IFS= read -r -d '' path; do
       IFS= read -r first <"$path" || first=
       [[ "$path" == *.sh || "$first" == '#!/usr/bin/env bash' || "$first" == '#!/bin/bash' ]] && printf '%s\0' "${path#./}"
     done | LC_ALL=C sort -z
 }
 quality_run_core() {
-  local path; local -a shell_files=() root_tests=()
+  local path
+  local -a shell_files=() root_tests=()
   while IFS= read -r -d '' path; do shell_files+=("$path"); done < <(quality_list_shell_files)
   for path in "${shell_files[@]}"; do bash -n "$path" || return 1; done
   while IFS= read -r -d '' path; do root_tests+=("${path#./}"); done < <(find ./tests -maxdepth 1 -type f -name 'test-*.sh' -print0 | LC_ALL=C sort -z)
-  for path in "${root_tests[@]}"; do QUALITY_GATE_NESTED=1 bash "$path" || return 1; done
+  for path in "${root_tests[@]}"; do PYTHONDONTWRITEBYTECODE=1 QUALITY_GATE_NESTED=1 bash "$path" || return 1; done
 }
 quality_run_static() {
-  local baseline_file="$repo_root/scripts/shell-quality-baseline.tsv" baseline_sha=62211b0b05c8ada6e48e408696244a655e1b0cb728c3a5406b601fc0af074a5f path blob; local -a shell_files=(); declare -A approved=()
+  local baseline_file="$repo_root/scripts/shell-quality-baseline.tsv" baseline_sha=6f03cbca4265b79efb63077a0825bed19adaef3b633951e89da8784277767be0 path blob
+  local -a shell_files=()
+  declare -A approved=()
   [[ "$(sha256sum "$baseline_file" | awk '{print $1}')" == "$baseline_sha" ]] || quality_protocol_error 'baseline canonical digest mismatch'
-  LC_ALL=C awk -F '\t' 'NF != 2 || $1 == "" || $2 !~ /^[0-9a-f]{40}$/ || (NR > 1 && $1 <= previous) || paths[$1]++ || blobs[$2]++ {exit 1} {previous=$1} END {if (NR != 30) exit 1}' "$baseline_file" || quality_protocol_error 'baseline canonical format mismatch'
+  LC_ALL=C awk -F '\t' 'NF != 2 || $1 == "" || $2 !~ /^[0-9a-f]{40}$/ || (NR > 1 && $1 <= previous) || paths[$1]++ || blobs[$2]++ {exit 1} {previous=$1} END {if (NR != 22) exit 1}' "$baseline_file" || quality_protocol_error 'baseline canonical format mismatch'
   while IFS=$'\t' read -r path blob; do approved["$path"]="$blob"; done <"$baseline_file"
   while IFS= read -r -d '' path; do shell_files+=("$path"); done < <(quality_list_shell_files)
   for path in "${shell_files[@]}"; do
@@ -47,16 +50,22 @@ quality_run_secrets() {
   canary_dir="$(mktemp -d)" || quality_protocol_error 'cannot create gitleaks canary'
   canary_dir="$(cd -- "$canary_dir" && pwd -P)" || quality_protocol_error 'cannot resolve gitleaks canary'
   trap 'rm -rf -- "$canary_dir"' EXIT
-  case "$canary_dir/" in "$repo_root/"*) rm -rf -- "$canary_dir" || quality_protocol_error 'cannot remove gitleaks canary'; quality_protocol_error 'canary must be outside repository' ;; esac
+  case "$canary_dir/" in "$repo_root/"*)
+    rm -rf -- "$canary_dir" || quality_protocol_error 'cannot remove gitleaks canary'
+    quality_protocol_error 'canary must be outside repository'
+    ;;
+  esac
   printf 'aws_access_key_id = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' >"$canary_dir/canary.txt" || quality_protocol_error 'cannot write gitleaks canary'
   if gitleaks "${gitleaks_args[@]}" "$canary_dir"; then canary_rc=0; else canary_rc=$?; fi
   [[ "$canary_rc" -eq 1 ]] || quality_protocol_error 'gitleaks canary contract'
-  rm -rf -- "$canary_dir" || quality_protocol_error 'cannot remove gitleaks canary'; trap - EXIT
+  rm -rf -- "$canary_dir" || quality_protocol_error 'cannot remove gitleaks canary'
+  trap - EXIT
   gitleaks "${gitleaks_args[@]}" "$repo_root" || return 1
 }
 if [[ "$mode" == --ci ]]; then
   for tool_spec in shellcheck:0.11.0 shfmt:3.14.0 gitleaks:8.30.1; do
-    tool="${tool_spec%%:*}"; expected="${tool_spec#*:}"
+    tool="${tool_spec%%:*}"
+    expected="${tool_spec#*:}"
     command -v "$tool" >/dev/null 2>&1 || quality_protocol_error "missing $tool $expected"
     case "$tool" in
       shellcheck) [[ "$(shellcheck --version | awk '/^version:/ {print $2}')" == 0.11.0 ]] || quality_protocol_error 'expected shellcheck 0.11.0' ;;

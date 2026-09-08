@@ -10,7 +10,6 @@ SKILL_PATHS=(
 )
 SERIAL_INIT='device_serial="${ANDROID_SERIAL-}"'
 SERIAL_GUARD='if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then'
-SERIAL_RUNTIME_GUARD='if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ || ! "$instance_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then'
 ADB_PREFIX='adb -s "$device_serial" '
 
 device_safety_fail() {
@@ -187,7 +186,7 @@ device_safety_run_skill_blocks() {
 }
 
 device_safety_check_skill_file() {
-  local name="$1" path="$2" dir="$DEVICE_SAFETY_TMPDIR/contract-$1" count block line trimmed rest init guard runtime_adb
+  local name="$1" path="$2" dir="$DEVICE_SAFETY_TMPDIR/contract-$1" count block line trimmed rest init guard
   local n=0 first=0 init_at=0 guard_at=0 init_count=0 guard_count=0 adb_count=0 adb_ok=1
   local adb_word='(^|[^[:alnum:]_])adb([^[:alnum:]_]|$)' unsafe='if [[ -z "$device_serial" ]]; then'
   count="$(device_safety_extract_device_blocks "$name" "$path" "$dir")" || count=error
@@ -206,14 +205,12 @@ device_safety_check_skill_file() {
       init_at=$n
       init=1
     else init=0; fi
-    if [[ "$trimmed" == "$SERIAL_GUARD" || "$trimmed" == "$SERIAL_RUNTIME_GUARD" ]]; then
+    if [[ "$trimmed" == "$SERIAL_GUARD" ]]; then
       guard_count=$((guard_count + 1))
       guard_at=$n
       guard=1
     else guard=0; fi
-    runtime_adb=0
-    [[ $trimmed =~ ^bash[[:space:]]+\"\$command_adapter\"[[:space:]]+(query|mutate|reconnect)[[:space:]]+android-device[[:space:]]+--[[:space:]]+adb[[:space:]]+-s[[:space:]]+\"\$device_serial\"[[:space:]] ]] && runtime_adb=1
-    if [[ "$trimmed" == *device_serial* && "$init" -eq 0 && "$guard" -eq 0 && "$trimmed" != "$unsafe" && "$trimmed" != "$ADB_PREFIX"* && "$runtime_adb" -eq 0 ]]; then
+    if [[ "$trimmed" == *device_serial* && "$init" -eq 0 && "$guard" -eq 0 && "$trimmed" != "$unsafe" && "$trimmed" != "$ADB_PREFIX"* ]]; then
       device_safety_fail "$name device block 1: device_serial reference not allowed"
       return 1
     fi
@@ -223,7 +220,7 @@ device_safety_check_skill_file() {
       if [[ "$trimmed" == "$ADB_PREFIX"* ]]; then
         rest="${trimmed#adb}"
         [[ "$rest" =~ $adb_word ]] && adb_ok=0
-      elif [[ "$runtime_adb" -ne 1 ]]; then
+      else
         adb_ok=0
       fi
     fi
@@ -254,8 +251,8 @@ device_safety_mutate_skill_file() {
   [[ "$count" == 1 ]] || return 1
   block="$dir/block-1.bash"
   device_safety_wrap_block "$block" "$target.baseline"
-  awk -v kind="$kind" -v guard="$SERIAL_GUARD" -v runtime_guard="$SERIAL_RUNTIME_GUARD" -v prefix="$ADB_PREFIX" -v count_file="$count_file" '
-    { line=$0; if (!n && kind=="regex" && (line==guard || line==runtime_guard)) {line="if [[ -z \"$device_serial\" ]]; then"; n++}
+  awk -v kind="$kind" -v guard="$SERIAL_GUARD" -v prefix="$ADB_PREFIX" -v count_file="$count_file" '
+    { line=$0; if (!n && kind=="regex" && line==guard) {line="if [[ -z \"$device_serial\" ]]; then"; n++}
       if (!n && kind=="bare" && line ~ /^[[:space:]]*adb -s "\$device_serial" /) {at=index(line,prefix); line=substr(line,1,at-1) "adb " substr(line,at+length(prefix)); n++}
       else if (!n && kind=="bare" && line ~ / -- adb -s "\$device_serial" /) {sub(/ -- adb -s "\$device_serial" /," -- adb ",line); n++} print line }
     END {print n+0 > count_file}' "$block" >"$target.block" || return 1
@@ -364,7 +361,7 @@ device_safety_run_legacy() {
   local test fake
   device_safety_fake_adb_install legacy demo-serial
   fake="$DEVICE_SAFETY_FAKE_BIN"
-  for test in ./claude-code/features/.harness/tests/test-harness.sh ./codex/tests/test-harness.sh ./common/tests/test-harness.sh; do PATH="$fake:$PATH" bash "$test" || device_safety_fail "legacy failed: $test"; done
+  for test in ./claude-code/features/.harness/tests/test-harness.sh ./codex/tests/test-install-harness.sh ./codex/tests/test-harness.sh; do PATH="$fake:$PATH" bash "$test" || device_safety_fail "legacy failed: $test"; done
 }
 device_safety_run_all() {
   local scope

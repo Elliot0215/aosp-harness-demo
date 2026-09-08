@@ -1,2 +1,0 @@
-FAIL  build-services-jar device block 1: missing safe serial preflight
-FAIL  build-sepolicy: expected exactly one fenced device block

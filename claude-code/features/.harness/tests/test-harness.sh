@@ -32,12 +32,23 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$FIXTURE/features/dev-test"
-printf '%s\n' 'dev-test' > "$FIXTURE/CURRENT_FEATURE"
-printf '%s\n' '# feature: dev-test' > "$FIXTURE/features/dev-test/CLAUDE.md"
+printf '%s\n' 'dev-test' >"$FIXTURE/CURRENT_FEATURE"
+printf '%s\n' '# feature: dev-test' >"$FIXTURE/features/dev-test/CLAUDE.md"
 
 HARNESS_ROOT="$FIXTURE" "$ROOT/.claude/bin/claude-feature" --dry-run >/dev/null
 test -L "$FIXTURE/CLAUDE.md"
 test "$(readlink "$FIXTURE/CLAUDE.md")" = "features/dev-test/CLAUDE.md"
+
+rm -f "$FIXTURE/CLAUDE.md"
+for invalid_feature in '../escape' '/absolute' '.' '..' $'dev-test\nsecond' ''; do
+  printf '%s\n' "$invalid_feature" >"$FIXTURE/CURRENT_FEATURE"
+  if HARNESS_ROOT="$FIXTURE" "$ROOT/.claude/bin/claude-feature" --dry-run >/dev/null 2>&1; then
+    echo "FAIL  invalid CURRENT_FEATURE accepted: $invalid_feature" >&2
+    exit 1
+  fi
+  test ! -e "$FIXTURE/CLAUDE.md"
+done
+printf '%s\n' dev-test >"$FIXTURE/CURRENT_FEATURE"
 
 # README 的主目录树和 quick start 必须从已迁移的 Claude demo 根开始。
 readme_tree_root="$(
@@ -71,9 +82,9 @@ fi
 
 # 当前方案是“树根单文件软链”，demo 不得继续描述已废弃的仓内 CLAUDE.md 物化方案。
 if rg -n 'frameworks-(base|native)\.md|物化.*CLAUDE\.md|同目录下的 CLAUDE\.md' \
-    "$ROOT/frameworks/base/PLACEHOLDER.java" \
-    "$ROOT/frameworks/native/PLACEHOLDER.cpp" \
-    "$ROOT/.claude/skills/build-services-jar/SKILL.md"; then
+  "$ROOT/frameworks/base/PLACEHOLDER.java" \
+  "$ROOT/frameworks/native/PLACEHOLDER.cpp" \
+  "$ROOT/.claude/skills/build-services-jar/SKILL.md"; then
   echo "FAIL  demo 仍含已废弃的仓内 CLAUDE.md 物化说明" >&2
   exit 1
 fi
@@ -92,7 +103,7 @@ grep -Fq 'PASS  demo root CLAUDE.md migration is rollback-safe' <<<"$link_safety
 
 rm -f "$FIXTURE/CLAUDE.md"
 mkdir "$FIXTURE/.repo"
-printf '%s\n' 'missing/repo - - expected missing repo' > "$FIXTURE/features/dev-test/repos.tsv"
+printf '%s\n' 'missing/repo - - expected missing repo' >"$FIXTURE/features/dev-test/repos.tsv"
 ln -s "$ROOT/features/dev-sidebar/check-branch.sh" "$FIXTURE/features/dev-test/check-branch.sh"
 set +e
 HARNESS_ROOT="$FIXTURE" "$ROOT/.claude/bin/claude-feature" --dry-run >/dev/null 2>&1
@@ -159,10 +170,16 @@ mkdir -p "$BRANCH_FIXTURE/features/dev-test" "$BRANCH_FIXTURE/repos/one"
 printf '%s\n' \
   'repos/one - - first repo' \
   'repos/two - - second repo' \
-  > "$BRANCH_FIXTURE/features/dev-test/repos.tsv"
+  >"$BRANCH_FIXTURE/features/dev-test/repos.tsv"
 git -C "$BRANCH_FIXTURE/repos/one" init -q -b dev-test
 git -C "$BRANCH_FIXTURE/repos/one" -c user.name=test -c user.email=test@example.com \
   commit --allow-empty -qm init
+
+if HARNESS_ROOT="$BRANCH_FIXTURE" FEATURE_NAME=../escape \
+  "$ROOT/features/dev-sidebar/check-branch.sh" >/dev/null 2>&1; then
+  echo 'FAIL  unsafe FEATURE_NAME accepted' >&2
+  exit 1
+fi
 
 set +e
 branch_output="$(HARNESS_ROOT="$BRANCH_FIXTURE" FEATURE_NAME=dev-test \
