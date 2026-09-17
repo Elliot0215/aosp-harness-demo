@@ -24,4 +24,33 @@ for phrase in \
   'RESULT PASS'; do
   grep -Fq "$phrase" "$root/README.md" || fail "README missing: $phrase"
 done
+python3 - "$root" <<'PY' || exit 1
+from pathlib import Path
+import re
+import sys
+from urllib.parse import unquote
+
+root = Path(sys.argv[1])
+sources = [root / 'README.md', root / 'claude-code/README.md',
+           root / 'codex/README.md', *sorted((root / 'docs').glob('AOSP*.md'))]
+for source in sources:
+    fenced = False
+    for number, line in enumerate(source.read_text(encoding='utf-8').splitlines(), 1):
+        if line.startswith('```'):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        for target in re.findall(r'(?<!!)\[[^\]]+\]\(([^)]+)\)', line):
+            target = target.strip()
+            if target.startswith('<') and target.endswith('>'):
+                target = target[1:-1]
+            target = target.split('#', 1)[0]
+            if not target or re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target):
+                continue
+            if not (source.parent / unquote(target)).exists():
+                print(f'DOCS FAIL  {source.relative_to(root)}:{number}: broken link: {target}',
+                      file=sys.stderr)
+                raise SystemExit(1)
+PY
 printf 'RESULT PASS  docs readiness\n'

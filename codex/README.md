@@ -158,7 +158,7 @@ Skills 位于 `.agents/skills`。Codex 对 skills 使用 **渐进式披露**：�
 
 ## 继续阅读
 
-- 长文：[AOSP 整机源码 Codex Harness 工程探索](AOSP整机源码Codex-Harness工程探索.md)
+- 长文：[AOSP 整机源码 Codex Harness 工程探索](../docs/AOSP整机源码Harness工程探索-codex版.md)
 - [`AGENTS.md` 自定义指令](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 - [Build skills](https://learn.chatgpt.com/docs/build-skills)
 - [Hooks](https://learn.chatgpt.com/docs/hooks)

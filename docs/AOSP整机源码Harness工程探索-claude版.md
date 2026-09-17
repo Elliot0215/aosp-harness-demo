@@ -1,29 +1,32 @@
 ---
 tags: [对外文章, claude-code, android, aosp, harness, 上下文工程, feature工作流, path-scoped-skill, cuttlefish]
 created: 2026-07-03
+updated: 2026-09-08
 source: claude-code
 ---
 
-# AOSP 整机源码 Harness 工程探索
+# AOSP 整机源码 Harness 工程探索（Claude Code 版）
 
-> 我们在一棵纯 AOSP 17（`android-17.0.0_r1`）整机源码树上，围绕 Claude Code 搭建了一套三层 harness 工程，让 coding agent 能够在上千个 git project、千万行量级的 repo 工程里稳定地**导航、编译、部署、验证**，目标设备是 Cuttlefish 虚拟机（`aosp_cf_x86_64_phone`）。本文先分析 coding agent 在整机源码树上应用的困难，再梳理 Anthropic 官方博客给出的大库通用要点，接着盘点网络上已有的同类方案，最后介绍我们的三层解决方案——每层解决什么问题、如何协同运转，以及一路探索踩过的坑。
+> 本文说明 Claude Code 版 AOSP Harness 的上下文选择、构建部署流程和功能验收。实现位于仓库的 [claude-code/](../claude-code/README.md)，示例目标为 AOSP 17、Cuttlefish 和 `dev-sidebar`。当前仓库仅包含占位源码；离线测试证明脚本行为，不代表系统已编译或功能已通过真机验证。
+
+实现说明以本地 wrapper、hooks、skills 和验证脚本为依据。前面的外部方案介绍与早期整机观察用于说明设计背景；客户端版本相关行为仍需在实际部署环境核对。
 
 ---
 
 ## 一、问题：为什么 coding agent 在整机源码树上"开箱不可用"
 
-Claude Code 这类 agent 不给代码库建索引（不做 RAG），而是用 **agentic search** 现场导航——grep、读文件、跟引用，像一个新来的工程师翻代码。这个设计有一个巨大的好处和一个巨大的代价：
+这套 Harness 采用 **agentic search** 现场导航，不配置代码索引或 RAG——grep、读文件、跟引用，像一个新来的工程师翻代码。这个设计有一个巨大的好处和一个巨大的代价：
 
-- **好处：永不过期。** 它永远读的是 live 代码，不会像向量索引那样"返回两周前已改名的函数、或引用一个已删除的模块，却不告诉你它过期了"。
+- **好处：直接读取当前工作树。** 搜索与阅读针对当前 checkout，不会像向量索引那样"返回两周前已改名的函数、或引用一个已删除的模块，却不告诉你它过期了"。
 - **代价：上下文窗口是唯一稀缺资源。** 导航的每一步（grep 结果、读过的文件）都在消耗上下文；导航质量完全取决于你把代码库"布置"得多好。
 
 AOSP 整机源码树把这个矛盾推到极端，有三个放大器：
 
 ```mermaid
 flowchart TB
-    subgraph agent["Claude Code 的工作方式 — agentic search"]
+    subgraph agent["本 Harness 的导航选择 — agentic search"]
         A["不建索引 / 不做 RAG"] --> B["现场导航<br/>grep、读文件、跟引用"]
-        B --> C["好处<br/>永远读 live 代码，不会过期"]
+        B --> C["好处<br/>搜索与阅读针对当前工作树"]
         B --> D["代价<br/>每一步都消耗上下文窗口"]
     end
     subgraph tree["AOSP 整机树的三个放大器"]
@@ -38,7 +41,7 @@ flowchart TB
     H --> I["结论<br/>必须先做 Harness 工程<br/>再谈让 agent 干活"]
 ```
 
-不搭 harness，直接在整机树上用 coding agent 会反复撞上这些墙（均为实际遇到或验证过的）：
+不搭 harness，直接在整机树上用 coding agent 会反复撞上这些墙（以下沿用早期整机探索记录，当前占位 demo 不复现这些整机现象）：
 
 | 痛点 | 现象 |
 | --- | --- |
@@ -130,7 +133,7 @@ LineageOS 社区开发者的 Claude Code 插件（MIT）：四个按触发词自
 
 - **优点**：**工程骨架是四家里最值得抄的**——单仓分发多 skill + agent（plugin.json/marketplace 一键装）、渐进式披露（SKILL.md 速查 + `references/` 深度页按需加载）、触发词自动激活、受限工具 + 固定工作流的子代理模板、仓库自校验 Makefile（CI 强制每个 skill 结构合规）。
 - **局限**：内容是**参考手册级的通用知识**（adb/fastboot/构建命令速查），视角偏三方 ROM 玩机而非整机平台开发；不绑定任何具体源码树——不知道你的 feature、你的编译产物、你的验证脚本；对树内导航、上下文经济、gerrit 污染等核心矛盾不涉及。
-- **我们的取舍**：抄骨架、自己填肉——渐进式披露和触发激活的思想直接体现在我们的 path-scoped skill 设计里（`paths` glob 替代触发词，粒度更准）。
+- **我们的取舍**：抄骨架、自己填肉——渐进式披露和触发激活的思想直接体现在我们的模块流程设计里；当前 skills 保留 `paths` 元数据，其客户端加载边界见第六节。
 
 ### Android-Software：分层专家路由的知识包
 
@@ -150,7 +153,7 @@ LineageOS 社区开发者的 Claude Code 插件（MIT）：四个按触发词自
 | utzcoz 十模式 | ◐ CLAUDE.md 契约 + handoff | ◐ 脚本化约定 | ● verify/红条 TDD/对抗 review |
 | hyperdroid-skill | ○ | ◐ 通用命令速查 | ◐ crash-analyzer |
 | Android-Software | ◐ 分层按需加载 | ◐ 子系统流程知识 | ○ |
-| **本文方案** | ● 启动前随 feature 分支切换（单文件软链） | ● path-scoped skill | ● verify 闭环 |
+| **本文方案** | ● 启动前随 feature 分支切换（单文件软链） | ● 模块构建 skills | ● 基础状态 verify 闭环 |
 
 ```mermaid
 quadrantChart
@@ -179,8 +182,8 @@ quadrantChart
 **三个术语（三层各自的关键落地物，正文表格里会直接用到）：**
 
 - **启动前 feature wrapper + SessionStart 兜底**：真实树中的 `.claude/bin/claude-feature` 先读当前分支、校验 `repos.tsv` 中的涉及仓、再把树根 `CLAUDE.md` 软链指向 `features/<分支>/CLAUDE.md`，最后才 `exec claude`。这样 Claude 读取 project memory 前，目标就已经确定。SessionStart hook 只做幂等检查、恢复与诊断，不能承担“本次启动一定已重新读取 memory”的正确性保证（第①层，详见第五节）。配套 demo 使用相同的 `.claude/bin/claude-feature` 路径。
-- **path-scoped skill**：skill 是**按需加载**的打包指令；带 `paths` glob 的 skill 只在 agent 读到匹配路径的代码时才**进入可用列表**（此时进入上下文的只是它的名字与描述，正文仍要等模型决定调用）。我们用它承载"改到这片代码怎么编译 / push / 验证"这类过程性知识——不读到就零上下文占用（第②层，详见第六节）。
-- **`features/<分支>/verify-*.sh` 确定性脚本**：每个 feature 自带的验证脚本，就是这个 feature 的"测试"。单项输出 **PASS/FAIL/SKIP**，最终状态是 **PASS/FAIL/INCOMPLETE**；默认任何 SKIP 都是未完成并返回非零，只有探索阶段显式传 `--allow-skip` 才允许带 SKIP 通过（第③层验证闭环，详见第七节）。
+- **流程 skill**：把模块的构建目标、产物、部署步骤和验证要求放在独立 `SKILL.md` 中，feature 上下文引用对应流程。当前两份 Claude skill 保留了 `paths` 元数据；仓库离线测试检查文件和命令，不证明任一客户端版本的自动加载行为（第②层，详见第六节）。
+- **`features/<分支>/verify-*.sh` 确定性脚本**：每个 feature 自带的验证脚本，就是这个 feature 的"测试"。单项输出 **PASS/FAIL/SKIP**，最终状态是 **PASS/FAIL/INCOMPLETE**；默认任何 SKIP 都是未完成并返回非零，只有 demo 探索阶段显式传 `--demo --allow-skip` 才允许带 SKIP 通过（第③层验证闭环，详见第七节）。
 
 ### 4.2 三层总览
 
@@ -189,25 +192,25 @@ quadrantChart
 | 层 | 解决什么 | 落地物 |
 | --- | --- | --- |
 | ① 上下文 | 每个会话确定知道"在哪、做什么、什么不能碰" | `features/.harness/bin/claude-feature`（经根 `.claude` 暴露）启动前把根 `CLAUDE.md` 软链到 `features/<分支>/CLAUDE.md`；SessionStart 只兜底/诊断 |
-| ② 流程 | 动到哪片代码就知道怎么编译/push/验证 | `features/.harness/skills/` 中若干 path-scoped skill，经根 `.claude/skills/` 使用 |
+| ② 流程 | 动到哪片代码就知道怎么编译/push/验证 | `features/.harness/skills/` 中两个流程 skill，经根 `.claude/skills/` 使用 |
 | ③ 验证闭环 | 斩断"编过=改对" | `features/<分支>/verify-*.sh` 确定性脚本 |
 
 > **与官方博客扩展点框架的对应关系**（博客要点见第二节）：博客把 harness 拆成五个扩展点（CLAUDE.md、hooks、skills、plugins、MCP servers）外加两项能力（LSP、subagents）。我们这张"三类能力"表是同一套东西按"解决什么问题"重排的：① 上下文 = **CLAUDE.md + 启动 wrapper + hooks**，其中 wrapper 是正确性边界，hook 是兜底；② 流程 = **skills**（path-scoped）；③ 验证闭环 = **verify 脚本**。**博客两项能力里的 LSP 我们最终不采纳**——理由见本节末「不采纳一」；导航因此不单独成层，而是贯穿三层的基线动作：`rg` 缩小范围 + 直接读当前源码。
 
-三层的**版本化源文件全部落在 `features/` 独立 Git 仓**：公共 wrapper、hooks、skills、settings 与回归测试在 `features/.harness/`，每个专项的上下文与验证工件在 `features/<分支>/`。AOSP 树根不是 Git 仓（只有 `.repo/`，没有 `.git/`），因此 `features/` 不属于任何 Gerrit project、也不在 manifest 中；树根只保留两个暴露入口：安装时创建的 `.claude -> features/.harness`，以及 wrapper 随 feature 重指的 `CLAUDE.md -> features/<分支>/CLAUDE.md`。这样既不污染上游，又能通过 `features/` remote 真正跨机分发和审计 Harness。
+真实 AOSP 部署时，三层的**版本化源文件集中在 `features/` 独立 Git 仓**：公共 wrapper、hooks、skills、settings 与回归测试在 `features/.harness/`，每个专项的上下文与验证工件在 `features/<分支>/`。AOSP 树根不是 Git 仓（只有 `.repo/`，没有 `.git/`），因此 `features/` 不属于任何 Gerrit project、也不在 manifest 中；树根只保留两个暴露入口：安装时创建的 `.claude -> features/.harness`，以及 wrapper 随 feature 重指的 `CLAUDE.md -> features/<分支>/CLAUDE.md`。这样既不污染上游，又能通过 `features/` remote 真正跨机分发和审计 Harness。
 
-```
+```text
 <AOSP_ROOT>/                          # repo 工程根（非 Git 仓）
 ├── .claude -> features/.harness     # 安装脚本创建的公共 Harness 暴露入口
 ├── CLAUDE.md -> features/<分支>/CLAUDE.md
 │                                      # wrapper 启动前按当前 feature 同步
-└── features/                         # 独立 Git 仓（不在 manifest，Gerrit/Soong 不可见）
+└── features/                         # 独立 Git 仓（不在 manifest，不加入 manifest 或构建输入）
     ├── install-harness.sh            # 安全、幂等地安装根 .claude 软链
     ├── .harness/                     # 公共 Harness 的版本化来源
     │   ├── bin/claude-feature        # ① 校验分支、同步 CLAUDE.md、再 exec claude
     │   ├── settings.json             # ① hooks 注册；settings.local.json 本机忽略
     │   ├── hooks/                    # ① feature 检测、SessionStart 兜底、漂移告警
-    │   ├── skills/                   # ② path-scoped 编译/验证 skill
+    │   ├── skills/                   # ② services.jar 与 sepolicy 流程 skill
     │   └── tests/                    # Harness 自身回归测试
     └── dev-sidebar/                  # 目录名 = repo 分支名 = feature 名
         ├── CLAUDE.md                 # ① 单文件全部上下文：树级约束 + 总览 + 各仓约定
@@ -216,28 +219,28 @@ quadrantChart
         └── verify-sidebar.sh         # ③ 确定性验证脚本
 ```
 
-**公共层的物理目录为什么叫 `.harness` 而不是 `.claude`。** 这是实测踩出来的，不是审美：树根暴露名必须是 `.claude`（Claude Code 只认这个），但 `features/` 里的**物理目录如果也叫 `.claude`，它会被当成第二个 skills 根独立发现一遍**——一次是我们要的、经根软链暴露的项目级注册（由 `paths` glob 门控），一次是子目录级注册（scope 到 `features/`）。结果是每个 skill 在可用列表里出现两次：`build-inputflinger` 和 `features:build-inputflinger`，后者还附带一条方向反了的提示——"改 `features/` 下的文件时用这个"，而 `features/` 里一行 C++ 都没有，那条规则永远不该触发。判据很干净：**两条注册同时存在**，说明是两条独立的发现路径；若只是根软链被解析成真实路径，就只会有一条。改掉物理目录名，第二条随即消失（实测见第六节）。
+**公共层的物理目录为什么叫 `.harness` 而不是 `.claude`。** 这是早期客户端环境观察促成的目录选择：树根暴露名必须是 `.claude`（Claude Code 只认这个），但 `features/` 里的**物理目录如果也叫 `.claude`，它会被当成第二个 skills 根独立发现一遍**——一次是我们要的、经根软链暴露的项目级注册（由 `paths` glob 门控），一次是子目录级注册（scope 到 `features/`）。结果是每个 skill 在可用列表里出现两次：`build-inputflinger` 和 `features:build-inputflinger`，后者还附带一条方向反了的提示——"改 `features/` 下的文件时用这个"，而 `features/` 里一行 C++ 都没有，那条规则永远不该触发。判据很干净：**两条注册同时存在**，说明是两条独立的发现路径；若只是根软链被解析成真实路径，就只会有一条。改掉物理目录名，第二条随即消失（历史观察与当前测试边界见第六节）。
 
 名字带前导点同样不是随手写的：git 的 `check-ref-format` 拒绝任何以 `.` 开头的 ref 组件，而 feature 目录名 = 分支名，所以 `.harness` **不可能**和某个 feature 撞名。这是原来叫 `.claude` 时白拿的一个性质，改名时不该丢掉。
 
-> **📦 可跑 Demo**：本节目录结构的最小可运行复刻见同级 [CODE0](https://github.com/yuandaimaahao/aosp-harness-demo)——三层落地物一应俱全：wrapper 提供 `--dry-run`，分支检查与 verify 脚本提供 `--demo`，流程层提供离线工件检查；无需真实 AOSP 树，`./run-demo.sh` 即可一键演示三层如何协同。Demo 自身是普通单 Git 仓，所以把 `.claude/` 实体目录留在仓根；真实部署才使用 `features/.harness/` + 根软链。下文五~七节每节开头的「▶ Demo」标注，就指向它对应的文件。
+> **可运行示例**：[claude-code/README.md](../claude-code/README.md)。从仓库根执行 `bash claude-code/run-demo.sh`，会依次演示安装、上下文选择、会话漂移、分支检查、流程检查、验证和回归。教学示例同样使用 `.claude -> features/.harness`，源码与安装生成的链接分开维护。
 
 **对博客扩展点与能力的四点取舍（都是被 repo/整机树的现实逼出来的，不是遗漏）：**
 
 - **背离一：博客建议"在子目录而非仓根初始化"**（让 agent scope 到与任务相关的部分，Claude 会自动向上加载沿途每个 CLAUDE.md，根上下文不丢）。这条建议的**两半我们最终都不采纳**，各有原因：
-  - **"从哪启动"这一半**——我们的 cwd **必须是树根**（envsetup / lunch / m / adb 全都要求树根 cwd），所以反其道而行。
+  - **"从哪启动"这一半**——我们的 cwd **必须是树根**（wrapper 固定树根，供构建相对路径和项目配置使用；ADB 本身不要求树根 cwd），所以反其道而行。
   - **"把 CLAUDE.md 放到子目录、按需加载"这一半**——我们曾用 hook 在涉及仓物化子目录 `CLAUDE.md`，后来收敛成单个 `features/<分支>/CLAUDE.md` 并让树根软链指向它。原因是 main session 的 feature 上下文本来每次都需要，集中后更易审计，也不必向各 Gerrit project 写入 harness 文件。但这只保证**主会话**从根 project memory 拿到一致上下文，不推出“所有子代理都继承”：普通自定义子代理通常加载 memory hierarchy，内建 Explore/Plan 却明确跳过 `CLAUDE.md`。派发时统一使用最小任务卡，不复制整份 feature 文件（详见第五节）。
 - **背离二：博客把 plugins 当作"分发可复用配置、防止好做法停留在部落知识"的手段**（打包 skills/hooks/MCP，marketplace 一键装）。我们**刻意不把这套项目专用 Harness 做成 plugin**：它仍放在 Gerrit projects 之外，但现在不是不可追踪的树根文件，而是由 `features/` 独立 Git 仓同时版本化 feature 工件与 `features/.harness/` 公共 Harness。跨机分发来自该仓的私有 remote；树根 `.claude` / `CLAUDE.md` 只是安装或启动阶段创建的暴露软链，不是事实源。
-- **不采纳一：LSP**。博客把 LSP 列为两项能力之一，我们一度按它落地了 C++ 侧的 clangd + 两段式 compdb，**最终整层撤除**。撤的理由不是配不起来（它能跑，单次查询 0.001s，比 `rg` 的 0.2s 快两个数量级，返回的结构化结果也比 `rg` 动辄几十上百 KB 的原始行省得多），而是**在整机树规模上它给不出可信的完整性**：后台索引要覆盖近十万个翻译单元，实测跑三分钟后 `findReferences` 对一个散布在 50 个文件里的类只认到 4 处，而且**不会提示结果不完整**。对"改这个类的成员布局要连带重编哪些模块"这类问题，一个自信的、干净的、错的答案，比 `rg` 吵闹但完整的几百行危险得多——前者会让人漏编，直接换来运行期的野指针崩溃。于是导航退回全语言统一的 `rg` + 源码阅读：慢两个数量级但完整，且没有索引时效、没有跨树串台、没有 Java 侧那套会写坏源码树的工具链。
+- **不采纳一：LSP**。博客把 LSP 列为两项能力之一，我们一度按它落地了 C++ 侧的 clangd + 两段式 compdb，**最终整层撤除**。撤的理由不是配不起来（它能跑，单次查询 0.001s，比 `rg` 的 0.2s 快两个数量级，返回的结构化结果也比 `rg` 动辄几十上百 KB 的原始行省得多），而是**在整机树规模上它给不出可信的完整性**：后台索引要覆盖近十万个翻译单元，实测跑三分钟后 `findReferences` 对一个散布在 50 个文件里的类只认到 4 处，而且**不会提示结果不完整**。对"改这个类的成员布局要连带重编哪些模块"这类问题，一个自信的、干净的、错的答案，比 `rg` 的原始文本命中危险得多——前者会让人漏编，直接换来运行期的野指针崩溃。于是导航退回全语言统一的 `rg` + 源码阅读：保留原始文本命中供源码复核，且没有索引时效、没有跨树串台、没有 Java 侧那套会写坏源码树的工具链。
 - **暂缓一：MCP servers**。博客点名一个常见错误——"基础还没跑通就先建 MCP 连接"。我们目前只在"查上游基线 / 跨版本 diff"这类**读侧**场景把 Lightrion 这类 MCP 当补充通道（第三节）；"把结构化检索暴露成 agent 可直接调用的工具"是后续可演进项，而非当前地基。
 
-> 下文以一个真实工作中的 feature 为例（记作 `dev-sidebar`）：在 AOSP 17 上新增一个系统服务 + 一个常驻边栏应用，涉及 `frameworks/base`、`frameworks/native`、新建 app 仓、`build/make`、`system/sepolicy` 五个仓。
+> 下文以教学 feature `dev-sidebar` 为例：在 AOSP 17 上新增一个系统服务 + 一个常驻边栏应用，涉及 `frameworks/base`、`frameworks/native`、新建 app 仓、`build/make`、`system/sepolicy` 五个仓。
 
 ---
 
 ## 五、第①层 上下文：每个会话睁眼就知道"在哪、做什么、什么不能碰"
 
-> ▶ **Demo**：[CODE0](https://github.com/yuandaimaahao/aosp-harness-demo) 里对应 `.claude/bin/claude-feature`、`CLAUDE.md`（软链）、`.claude/settings.json`、`.claude/hooks/{feature-common,load-feature,check-branch-drift}.sh`、`features/dev-sidebar/{CLAUDE.md,repos.tsv,check-branch.sh}`。Demo 用树根 `CURRENT_FEATURE` 模拟“锚定仓当前分支”；wrapper 在 Claude 启动前同步软链，SessionStart 只做兜底检查。Demo 是普通单 Git 仓，因此 `.claude/` 是根下实体目录；真实树的同一路径来自 `features/.harness/` 软链暴露。
+> **实现入口**：[启动 wrapper](../claude-code/features/.harness/bin/claude-feature)、[hook 配置](../claude-code/features/.harness/settings.json)、[feature 上下文](../claude-code/features/dev-sidebar/CLAUDE.md)。本地 demo 用 `CURRENT_FEATURE` 提供默认 feature；真实树优先从锚点仓分支探测。两者的 `.claude` 都是指向 `features/.harness/` 的软链。
 
 **这一层做的事一句话说清：先把版本化 Harness 安全暴露到树根，再在 Claude 进程启动前选定当前 feature，让主会话读到正确的项目上下文。** 公共 Harness 集中在 `features/.harness/`，安装脚本只需一次把树根 `.claude` 链过去；一个 feature 的上下文集中在 `features/<分支>/CLAUDE.md`（树级约束 + feature 总览 + 各仓约定），树根 `CLAUDE.md` 是 wrapper 动态维护的另一条软链。关键不在“有一条 SessionStart hook”，而在启动顺序：先由 `.claude/bin/claude-feature` 检测分支、检查涉及仓、同步 `CLAUDE.md`，再启动 Claude。hook 内才改软链无法证明同一次启动已经重新读取 project memory，因此只能作为恢复与诊断。
 
@@ -249,7 +252,7 @@ quadrantChart
 
 - **`features/` —— 放在树根的独立 Git 仓**：公共 Harness 与各 feature 工件共用一个可跨机同步的版本边界；每个 feature 一个子目录，**目录名就等于该 feature 的 repo 分支名**。以 `dev-sidebar` 为例：
 
-```
+```text
 features/
 ├── install-harness.sh          # 安装根 .claude -> features/.harness
 ├── .harness/                   # wrapper / hooks / skills / settings / tests
@@ -260,9 +263,9 @@ features/
     └── verify-sidebar.sh       # 确定性验证脚本
 ```
 
-- **`repos.tsv` —— 涉及仓的单一事实源**：一行一个涉及仓，四列——仓路径、单仓约定文件（保留作说明/历史）、标签（当前留空，作扩展位）、说明。`check-branch.sh` 与启动 wrapper 读取全部仓，确保它们都在当前 feature 分支。上下文正文不从 TSV 拼装，仍由单文件 `CLAUDE.md` 承载。
+- **`repos.tsv` —— 涉及仓的单一事实源**：一行一个涉及仓，沿用四列说明格式，以空白分隔——仓路径、单仓约定文件（保留作说明/历史）、标签（当前留空，作扩展位）、说明。checker 只消费首列仓路径，将每个仓的分支与 `FEATURE_NAME` 比较；其余列不参与判断。wrapper 在存在 `.repo/` 时调用 checker。上下文正文不从 TSV 拼装，仍由单文件 `CLAUDE.md` 承载。
 
-```
+```text
 frameworks/base           -                     -  SidebarService + SystemServer 注册
 frameworks/native         -                     -  SidebarFlinger（native 合成侧）
 packages/apps/SidebarApp  -                     -  常驻边栏 app（编译/push 走 skill）
@@ -274,7 +277,7 @@ system/sepolicy           -                     -       新服务 SELinux 策略
 
 - **`features/install-harness.sh` —— 根 Harness 暴露安装器**：验证 `features/.harness/` 存在后创建相对软链 `.claude -> features/.harness`。重复安装幂等；若根 `.claude` 是真实目录或指向别处的软链，安装器直接失败并要求人工合并，绝不静默覆盖。
 
-- **`.claude/bin/claude-feature` —— 真实树中推荐且 fail-closed 的启动入口**：这是 `features/.harness/bin/claude-feature` 的树根逻辑路径；它调用共用函数检测 feature，确认目标 `CLAUDE.md` 存在，运行涉及仓分支检查，同步根软链，然后 `exec claude`。缺上下文或仓分支漂移时拒绝启动，避免带错 memory 开工。配套 Demo 使用相同逻辑路径。
+- **`.claude/bin/claude-feature` —— 真实树中推荐且 fail-closed 的启动入口**：这是 `features/.harness/bin/claude-feature` 的树根逻辑路径；它调用共用函数检测 feature，确认目标 `CLAUDE.md` 存在，在存在 `.repo/` 的树中运行涉及仓分支检查，同步根软链，然后 `exec claude`。缺上下文或仓分支漂移时拒绝启动，避免带错 memory 开工。配套 Demo 使用相同逻辑路径。
 
 - **`.claude/hooks/feature-common.sh` —— wrapper 与 hooks 的共用实现**：集中提供 feature 检测、上下文路径解析与可回滚的软链同步，避免启动入口、SessionStart 和漂移检查各写一份逻辑。
 
@@ -284,17 +287,17 @@ system/sepolicy           -                     -       新服务 SELinux 策略
 
 #### 安装并正确启动 Claude Code
 
-首次克隆 `features/`、或从旧的根实体目录迁移后，先从真实 AOSP 树根安装 `.claude` 暴露软链，再执行 wrapper：
+先把 `features/` 放入目标 AOSP 树，保留隐藏的 `.harness/` 目录。在目标树根安装入口，再启动 wrapper：
 
 ```bash
-cd /home/zzh0838/Project/aosp
+cd /path/to/aosp
 ./features/install-harness.sh
 ./.claude/bin/claude-feature
 ```
 
 以后只需执行 wrapper；安装脚本重复运行会确认已有正确软链。若根 `.claude` 有真实目录或无关软链，它会返回非零而不是删除、移动或重指，迁移内容需人工确认。
 
-wrapper 会把后续参数原样传给 Claude Code，因此继续会话、恢复会话和选择模型仍按原 CLI 用法书写：
+wrapper 将后续参数原样传给 `claude`，例如继续会话、恢复会话和选择模型。恢复旧会话前应确认仍是同一 feature；wrapper 不检查旧对话中的上下文是否与当前分支一致：
 
 ```bash
 ./.claude/bin/claude-feature --continue
@@ -344,12 +347,12 @@ sequenceDiagram
     participant H as SessionStart hook
 
     U->>W: .claude/bin/claude-feature
-    W->>W: 检测当前 feature<br/>读取 repos.tsv 检查涉及仓分支
+    W->>W: 检测当前 feature<br/>有 .repo 时按 repos.tsv 检查分支
     W->>F: 启动前同步根 CLAUDE.md 软链<br/>→ features/dev-sidebar/CLAUDE.md
     W->>CC: exec claude
     CC->>F: 加载根 CLAUDE.md（穿软链）→ 主会话获得该 feature 上下文<br/>(树级约束 + 总览 + 各仓约定)
     CC->>H: SessionStart 幂等检查
-    H-->>CC: 状态正确则安静；晚修复则告警重启
+    H-->>CC: 记录快照并输出状态；晚修复则告警重启
     Note over CC: 导航基线 rg + Read 始终可用，无需任何索引准备
     CC-->>U: 主会话在正确 feature 上下文中开始
 ```
@@ -357,18 +360,26 @@ sequenceDiagram
 一步步拆开：
 
 1. 一次性安装阶段，`features/install-harness.sh` 确认源目录后创建 `.claude -> features/.harness`；危险的已有目标会让安装失败。
-2. wrapper 从锚定仓链读出当前分支名（如 `dev-sidebar`），解析 `features/dev-sidebar/`。
-3. 它用 `repos.tsv` 检查全部涉及仓是否都在该分支；任何缺失或漂移都 fail closed。
+2. wrapper 依次检查 `frameworks/base`、`frameworks/native`、`frameworks/av`、`system/core`，采用首个可用的非 detached 分支；没有可用分支时读取 `CURRENT_FEATURE`。首个候选名称非法时直接拒绝，不继续寻找另一个名字。名称须匹配 `[A-Za-z0-9][A-Za-z0-9._-]*`，不接受 slash、空值、换行或 NUL。
+3. 树根存在 `.repo/` 时，wrapper 要求 `check-branch.sh` 可执行，并检查清单内仓库；缺仓、损坏 Git 元数据、detached HEAD 或分支不符都拒绝启动。普通 demo 目录没有 `.repo/`，因此跳过这一步，另用 `--demo` 演示预设漂移。
 4. 它幂等同步树根 `CLAUDE.md` 软链（根若还是真实文件则先保护性备份），随后才 `exec claude`。
 5. Claude Code 加载树根 project memory；SessionStart 再检查一次，正常时无需修复。
 6. 主会话由此确定拿到当前 feature 上下文。导航无需任何额外准备——`rg` + Read 即刻可用。
 
-几个容易踩的细节都已加固：
+当前实现还有以下边界：
 
-- **SessionStart 覆盖 startup / resume / clear / compact，但只负责诊断与恢复**。若它发现 wrapper 没有提前同步，修复后也会要求重启，因为不能假定 Claude 会在同一次启动里重读刚变化的 memory。
-- **每条 prompt 跑一次分支漂移检测**（UserPromptSubmit hook `check-branch-drift.sh`）：比对当前分支与会话快照。会话中途切分支后持续告警，直到退出并通过 `.claude/bin/claude-feature` 建立新会话；没切则零输出。
-- **锚定仓做成链**：feature 不一定碰 frameworks/base，按 base → native → 下一候选的顺序找到第一个能读出分支的仓。
-- **两类软链都 fail-safe**：根 `.claude` 只由安装器创建，遇到真实目录或无关软链立即拒绝；根 `CLAUDE.md` 重指幂等，若迁移前仍是真实文件，则必须先成功备份、再移走原文件，建链失败还会从备份回滚。正常迁移保留备份，任何失败都要显式报错。**树根只维护暴露软链，不往任何 Gerrit project 写字节。**
+- **SessionStart 未设置 matcher**：`load-feature.sh` 在收到事件时重新探测 feature、写快照并同步链接。正常时输出状态行；若在 hook 阶段才改链接，提示退出后经 wrapper 重启。它不会确认旧对话已经重新加载上下文。
+- **UserPromptSubmit 只告警**：`check-branch-drift.sh` 比较当前 feature 与快照，变化时输出警告，退出码仍为 0。快照缺失或 feature 探测失败时也不阻断，因此它不能替代启动前检查或完整涉及仓检查。
+- **快照未按会话隔离**：文件固定为 `${TMPDIR:-/tmp}/.aosp-harness-demo.feature-snapshot`。每次 SessionStart 都会覆盖它；共用 TMPDIR 的多树、多会话会互相影响。收到合法的 SessionEnd 输入后，`session-end.sh` 删除该文件。当前 hook 不负责生成交接报告或提炼经验。
+- **两类软链的保护不同**：安装器拒绝覆盖已有 `.claude` 实体或无关软链；wrapper 遇到普通 `CLAUDE.md` 时先执行保护性备份，再创建临时链接并替换。备份或替换失败会报错，不能把 Codex 的“拒绝普通文件”行为套用到 Claude 版。
+
+三个 hook 的命令都给完整路径加了引号。以下摘自配置中的 SessionStart handler；引号是 JSON 字符串的一部分，避免路径含空格时被 shell 拆开：
+
+```json
+{"type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/load-feature.sh\""}
+```
+
+[运行行为回归](../tests/test-runtime-contracts.sh)从 `settings.json` 读取命令，在含空格的工程目录验证快照创建、漂移告警和结束清理。构建交接或完成前仍要运行 `./features/dev-sidebar/check-branch.sh`，因为 prompt hook 不会检查非锚点仓是否单独切了分支。
 
 > **博客视角的一个补白**：hooks 很适合捕获事件、提醒漂移和推动配置自我改进，但“在 Claude 已开始加载项目 memory 后再改变 memory 文件”存在时序不确定性。这里把确定选择前移到启动 wrapper，hooks 回到它们更擅长的角色：SessionStart 诊断、UserPromptSubmit 分支漂移告警。会话末反思 hook 仍是下一步方向。
 
@@ -434,149 +445,184 @@ flowchart TB
 | push framework.jar/services.jar 后注意 ART 缓存 | dexpreopt/boot image 校验不一致拖慢甚至起不来 |
 | 不手改 `out/` 下任何生成物 | 增量构建被破坏 |
 
-同理，编译约定只保留那些 agent 默认容易做错、且影响面大的规则：envsetup 必须用 bash（工具默认 shell 可能是 zsh），`source` 后不能接 pipe（函数会进子 shell）；长编译后台跑并轮询日志，看到明确成功标记才算完成。
+feature 上下文要求 Bash 初始化构建环境，并对长构建进行后台执行和日志轮询。下面是其中的启动示意；它只展示如何发起后台任务，没有保存 PID、等待退出或检查产物，不能单独作为构建完成判据：
 
 ```bash
 bash -c 'source build/envsetup.sh >/dev/null 2>&1 \
   && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug >/dev/null 2>&1 \
-  && m services' > /tmp/build.log 2>&1 &     # 后台 + 日志轮询，
-                                             # 看到 build completed successfully 才算完
+  && m services' > /tmp/build.log 2>&1 &     # 仅展示启动，不能据此判定构建完成
 ```
 
-（顺带一个 Android 17 的新变化：lunch 目标是三段式 product-release-variant，release 段如 `trunk_staging`，可从 `out/soong.log` 的 `TARGET_RELEASE=` 反查。）
+示例写死了三段式 `aosp_cf_x86_64_phone-trunk_staging-userdebug`。接入其他产品时需要同步修改 lunch、产物路径和部署入口。Claude build skills 目前给出简化的构建命令；Codex 版另提供同一 shell 中保留 PID、`wait`、日志与产物判断的完整构建块。
 
 ---
 
-## 六、第②层 流程：动到哪片代码，就知道怎么编译验证
+## 六、第②层 流程：按模块选择构建与部署步骤
 
-> ▶ **Demo**：[CODE0](https://github.com/yuandaimaahao/aosp-harness-demo) 里对应 `.claude/skills/build-services-jar/SKILL.md` 与 `build-sepolicy/SKILL.md`，配合 `features/dev-sidebar/CLAUDE.md` 中对应仓小节“一句话指回 skill”的单一事实源写法。`run-demo.sh` 会调用 `.claude/bin/check-process-layer`，离线检查两个 skill 的结构和关键流程内容；它不启动 Claude，也不把工件检查冒充成自动触发测试。真实树中相同逻辑路径的物理来源是 `features/.harness/skills/`。
+### 6.1 当前提供的两个 skill
 
-**这一层做什么。** 一句话：让 agent 一动某片代码，就自动知道这片代码"怎么编译、产物在哪、要 push 哪些文件、怎么验证"——不用人每次交代，平时也不占上下文。这类"改了这片代码该怎么走完编译到验证"的知识是**过程性知识**（区别于第①层"在哪、做什么"那种背景知识）。
+公共流程位于 `features/.harness/skills/`，经 `.claude/skills/` 暴露。feature `CLAUDE.md` 写业务目标和依赖，并引用模块对应的 skill。
 
-**怎么做到的。** 难点在于：把它全塞进根 CLAUDE.md，会每个会话常驻、白白挤占上下文。解法是 **skill 按需加载 + `paths` glob 按路径限定**——把每一类代码的编译验证流程各写成一个 skill，并在 frontmatter 里用 `paths` 标注它作用的代码路径；只有当 agent 真的 Read 到匹配路径的文件时，对应 skill 才**出现在可用 skill 列表里**，其余时间零占用。
+| skill | 当前内容 | 接入真实树时需确认 |
+| --- | --- | --- |
+| [build-services-jar](../claude-code/features/.harness/skills/build-services-jar/SKILL.md) | `m services`、`services.jar` 路径、固定设备的 push 步骤、ART 缓存风险、API 和 SELinux 依赖 | lunch 产品、产物位置、部署是否需要联动其他模块 |
+| [build-sepolicy](../claude-code/features/.harness/skills/build-sepolicy/SKILL.md) | service context 与 type 示例、`m selinux_policy`、镜像部署说明、denial 和服务查询 | 目标树的策略规则、客户端权限及完整镜像部署方式 |
 
-这里要精确区分两段，别把它想成"命中即注入"：**命中 → skill 的名字与描述进入上下文（很廉价）；模型据描述判断该不该调用 → 调用后 SKILL.md 正文才进上下文**。所以 `paths` 提供的是**作用域门控**（不命中就完全不可见），而不是执行保证——最后那一跳仍是模型判断。
+仓库未提供 `build-inputflinger`、`build-libgui` 或 SidebarFlinger 专用 skill。feature 文本中的 native 流程引用是扩展位置，使用前需要补齐。Claude 版 sepolicy 示例与 Codex 版的属性写法也尚未统一；离线脚本检查不能证明这些策略能在某个真实 AOSP 分支编译。
 
-**这套门控在真实整机树上实测确认过**（不是照着文档推的）。同一个会话里，只做 Read、不做任何编辑，观察可用 skill 列表怎么变：
+### 6.2 路径元数据与调用边界
 
-| 时刻 | 可用列表里的 `build-*` |
-| --- | --- |
-| 会话刚开，什么都没读 | **一个都没有** |
-| Read `frameworks/native/services/inputflinger/InputThread.cpp` | 只出现 `build-inputflinger` |
-| Read `frameworks/native/libs/gui/Surface.cpp` | 只出现 `build-libgui` |
-| Read `frameworks/base/services/.../InputManagerService.java` | 只出现 `build-services-jar` |
-
-三件事因此从"设计意图"变成"已验证"：门控确实按**被读文件的源码路径**生效；不读就是**零上下文占用**（第一行）；而且只有匹配的那一个进来，其余四个保持沉默——五个 skill 的描述加起来并不便宜，这个差别正是第②层立身的理由。
-
-顺带一提，这张表第一次跑出来时是错的：每个 skill 都出现了**两次**（`build-inputflinger` 和 `features:build-inputflinger`），根因是公共层的物理目录当时叫 `features/.claude/`，被当成第二个 skills 根独立发现了一遍（详见第四节末的目录命名说明）。改名为 `features/.harness/` 后重测，才得到上表。**"配上了"和"量过了"之间隔着一次真实观测**——这条教训在本文里已经出现过第二次了（第一次是代码智能层的完整性，见第四节「不采纳一」）。
-
-```mermaid
-flowchart LR
-    A["Read frameworks/base/services/**"] -->|paths glob 命中| B["build-services-jar 进入可用列表<br/>（此时只有 name + description）"]
-    C["Read system/sepolicy/**"] -->|paths glob 命中| D["build-sepolicy 进入可用列表"]
-    E["Read frameworks/native/services/inputflinger/**"] -->|paths glob 命中| F["build-inputflinger 进入可用列表"]
-    B --> K{"模型据 description 判断<br/>要不要调用"}
-    D --> K
-    F --> K
-    K -->|调用 Skill 工具| L["SKILL.md 正文进上下文<br/>单编目标 / 产物路径 / push 清单 / 已知坑"]
-    K -->|判断不需要| M["正文不进上下文<br/>—— 非确定性就在这一跳"]
-    I["平时不读这些路径"] --> J["这些流程知识零上下文占用"]
-```
+当前 Claude skills 保留 `paths` 元数据。例如 services skill 的头部为：
 
 ```yaml
-# 逻辑路径 .claude/skills/build-services-jar/SKILL.md
-# 真实树物理来源 features/.harness/skills/build-services-jar/SKILL.md
 ---
 name: build-services-jar
-description: 编译/部署 services.jar——改 frameworks/base/services 下代码时用
+description: 编译 / 部署 services.jar —— 改 frameworks/base/services 下代码（含 SystemServer 注册系统服务）时用
 paths:
   - "frameworks/base/services/**"
 ---
 ```
 
-这里的 **glob** 就是文件路径的通配符匹配（和 shell 里 `ls *.c` 的 `*` 同源）：`*` 匹配单层路径内的任意字符，`**` 跨目录递归匹配任意层级。所以 `frameworks/base/services/**` 的意思是"`frameworks/base/services/` 目录下任意深度的任意文件"。skill frontmatter 里的 `paths` 字段就是给这个 skill 挂一组这样的路径模式；agent 每 Read 一个文件，Claude Code 就拿该文件路径逐条比对这些模式，**命中则把该 skill 的名字与描述放进可用列表，不命中就当它不存在**。这就是它按"你正在动的代码落在哪个目录"来决定哪些 skill 可见——比 hyperdroid 那种按关键词触发的粒度更准（路径是确定的，关键词会误触），也正是官方博客说的 skill "可 path-scoped、只在相关目录激活"。
+这里的路径表示该流程针对的源码范围。是否、何时向模型展示或加载 skill，由实际客户端处理；本仓没有实现路径匹配加载器，离线测试也不会启动客户端验证自动激活。因此使用流程时，应由任务和 feature 指引明确选择，并读取正文后执行。
 
-**但"可见"不等于"必被执行"**，这是设计这一层时必须认下的边界。`paths` 在 skill 与 rule 上都支持，两者命中后的行为却不同：
+早期整机环境曾记录过“读取 inputflinger 后出现 `build-inputflinger`、读取 libgui 后出现 `build-libgui`”的观察，也因此把公共目录从 `features/.claude/` 调整为 `features/.harness/`。这些记录解释了设计来源；它们不代表当前两个教学 skills 已在所有客户端版本上获得同样结果。
 
-| 机制 | 命中后进入上下文的是 | 是否需要模型判断 | 适合承载 |
-| --- | --- | --- | --- |
-| `.claude/skills/<name>/SKILL.md` + `paths`（源：`features/.harness/skills/`） | 只有 **name + description** | ✔ 需要——由模型据 description 决定是否调用 | 篇幅长、按需展开的**流程知识**（编译命令、产物、push 清单） |
-| `.claude/rules/*.md` + `paths`（若新增，源也在 `features/.harness/rules/`） | **规则正文全文** | ✘ 不需要——命中即注入 | 短小、漏了就出事的**硬约束** |
+流程文件与功能上下文的分工如下：
 
-（官方 frontmatter 文档对 skill 的 `paths` 措辞是 "Claude loads the skill automatically only when working with files matching the patterns… Uses the same format as path-specific rules"——**门控是确定的，调用不是**。）
+```mermaid
+flowchart LR
+    A[feature CLAUDE.md：目标、涉及仓、依赖] --> B[按任务选择流程 skill]
+    B --> C[读取 SKILL.md：构建目标、产物、部署步骤]
+    C --> D[agent 执行命令并检查退出状态]
+    D --> E[feature 验证脚本]
+```
 
-这个差异决定了两者的分工：**流程知识放 skill**（正文动辄上百行，常驻不划算，且漏调用最坏只是"没按最优流程走"）；**"漏了就崩真机"的硬约束放 rule**（例如改 `frameworks/native/libs/gui/**` 的 BBQ 成员布局必须连带重编 `libandroid_runtime.so`，否则对象布局不一致直接 SIGSEGV——这种事不能押在模型判断上）。把两者都塞进 skill，是把安全约束建在了概率上；把两者都塞进 rule，则又回到了"常驻挤占上下文"的老问题。
+通用命令集中维护在 skill；feature 文本保留服务名、客户端和跨仓依赖。关键操作是否被执行，仍要以工具记录和验证输出为依据。
 
-repo 工程有个特殊决策点：skill 放哪。嵌套进 `frameworks/base/.claude/skills/` 会被该 Gerrit project 跟踪——又是污染问题。结论与 feature 工作流同构：**物理上集中版本化到 `features/.harness/skills/`，逻辑上通过树根 `.claude/skills/` 暴露，再用 `paths` glob 做作用域**。`features/` 不属于 manifest 中的任何 project，而 Claude 仍从树根标准路径发现 skills；编译/adb 本来也要求树根 cwd，天然满足。
+### 6.3 部署前固定设备，失败立即退出
 
-另一条重要纪律是**单一事实源**：初版曾在 skill 和 feature 单仓约定里把编译/push 流程写了两遍，评审时判定必然漂移。最终分工——`features/.harness/skills/` 承载不随 feature 变的通用流程（编译命令、产物、push 清单、已知坑）；`features/<分支>/CLAUDE.md` 的对应仓小节只写 feature 特有内容，流程一句话指回 skill。两者虽然都在 `features/` 仓里版本化，职责仍分开。Demo 保留 services.jar 与 sepolicy 两个代表性 skill；真实树可按 framework.jar、services.jar、native 库、应用、sepolicy 等模块继续拆分，每个都写明“后台编译 + 日志轮询、产物与 push 清单、快环稳环、编过≠改对指向 verify 脚本”。
+services 部署块先校验 `ANDROID_SERIAL`，再依次执行 root、remount、push 和 reboot。下面是当前 skill 的完整设备代码块：
+
+```bash
+device_serial="${ANDROID_SERIAL-}"
+if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
+  echo 'error: set ANDROID_SERIAL to a safe, explicit target serial' >&2
+  exit 2
+fi
+adb -s "$device_serial" root || exit $?
+adb -s "$device_serial" remount || exit $?
+adb -s "$device_serial" push out/target/product/vsoc_x86_64/system/framework/services.jar /system/framework/services.jar || exit $?
+adb -s "$device_serial" reboot || exit $?
+```
+
+每一步失败都把原退出码传回调用方，push 失败后不会继续 reboot。`-s` 只固定操作目标，不会证明产物与设备版本兼容；执行前仍须确认目标与构建证据。涉及 ART、dexpreopt 或策略联动时，应按目标树的流程选择完整镜像部署。
+
+sepolicy skill 的查询块先将 `dmesg`、`service list` 写入临时文件，再检查内容；查询失败会退出，EXIT trap 清理临时文件。当前 denial 检查会拒绝输出中的任意 `avc: denied`，没有按服务或时间窗口细分；其中的服务查询也是粗略检查，最终存在性验收仍应交给 `verify-sidebar.sh`。
+
+### 6.4 静态检查与行为回归分别证明什么
+
+在示例根运行 `./.claude/bin/check-process-layer`，检查两个 skill 的结构与关键内容。它不会构建系统，也不证明客户端加载过 skill。
+
+仓库级 [test-runtime-contracts.sh](../tests/test-runtime-contracts.sh)进一步提取 skill 中的 Bash 代码块，使用 fake ADB 逐步注入失败，验证返回码和后续命令是否停止。这样可以发现“文档含有设备命令，但失败后仍重启”的执行缺陷。构建、设备与客户端认证均由离线测试替代，真实部署证据需另行取得。
 
 ---
 
-## 七、第③层 验证闭环：斩断"编过 = 改对"
+## 七、第③层 验证闭环：区分通过、失败与未完成
 
-> ▶ **Demo**：[CODE0](https://github.com/yuandaimaahao/aosp-harness-demo) 里对应 `features/dev-sidebar/verify-sidebar.sh --demo`。默认 `FAIL>0` 得到 `RESULT FAIL`，`SKIP>0` 得到 `RESULT INCOMPLETE`，两者都非零；只有显式 `--allow-skip` 才允许探索性通过。
+[verify-sidebar.sh](../claude-code/features/dev-sidebar/verify-sidebar.sh)把 feature 的基础验收编码为五项结果：
 
-**这一层做什么。** 一句话：在 agent **收工宣布完成前**，别让它把"编译通过"当成"改动正确"。前两层帮 agent 把事做顺，这一层专门防它自我误判。
+1. `sys.boot_completed` 的输出去除空白后为 `1`；
+2. `pidof system_server` 的输出去除空白后非空；
+3. 指定时间窗口内的 crash buffer 为空；
+4. 服务列表含名称为 `sidebar` 的条目；
+5. 包列表含完整包名 `com.android.sidebar`。
 
-**怎么做到的。** 一道不依赖模型记性的**确定性验证脚本**（verify 脚本）：把"改对了没有"编码成单项 PASS/FAIL/SKIP、最终 PASS/FAIL/INCOMPLETE 的机器判定，堵死 agent 拿模糊输出自我安慰的路。
+源码注释把它们归为四步，其中最后一步包含服务与应用两个独立检查。当前验证只证明基础启动与存在性，不覆盖 Binder 方法调用、SidebarFlinger 合成、边栏交互或性能。
 
-AOSP 没有"改完跑一下"的现成测试套，**verify 脚本就是这个 feature 的测试**。utzcoz 的原话："没有这个，会话结尾 agent 会因为 build 成功就确信改动生效了。" 验证环编码成脚本、只编码一次；关键是不能让 SKIP 冒充成功。
+### 7.1 查询结果完整读取，再匹配对象
 
-```mermaid
-flowchart TB
-    A["改代码"] --> B["单编模块<br/>后台跑 + 日志轮询"]
-    B --> C{"build completed<br/>successfully?"}
-    C -->|否| A
-    C -->|是| D["快环 — adb push 进运行中的 Cuttlefish + 重启进程"]
-    D --> E{"设备能正常起来?"}
-    E -->|起不来 / 诡异| F["稳环兜底 — m 整机<br/>cvd stop → cvd start 换新镜像<br/>必要时清 /data/dalvik-cache/"]
-    E -->|是| G["跑 features/dev-sidebar/verify-sidebar.sh"]
-    F --> G
-    G --> H{"最终结果?"}
-    H -->|FAIL| A
-    H -->|INCOMPLETE / 有 SKIP| J["继续实现断言；探索期才显式 --allow-skip"]
-    J --> A
-    H -->|PASS| I["才允许宣布完成<br/>编译成功 ≠ 改动正确"]
+服务和包查询先完成命令替换并检查退出码，再对捕获的文本匹配：
+
+- 服务名匹配边界，`other_sidebar:` 不能冒充 `sidebar:`；
+- 包名按整行匹配，`com.android.sidebar.fake` 或 `comXandroidYsidebar` 不能冒充目标应用；
+- 查询非零退出记为 FAIL，即使错误退出前曾输出匹配行；
+- 查询成功但缺服务记为 FAIL，缺应用记为 SKIP。
+
+这也避免了 `adb ... | grep -q` 在 `pipefail` 下的误判：当目标条目提前出现、输出仍很长时，grep 提前退出会使上游收到 SIGPIPE。先完整读取后匹配，查询退出码与匹配结果可以分别判断。
+
+### 7.2 crash 时间窗口与客户端实现差异
+
+默认从设备 `/proc/stat` 解析 `btime`，也可通过 `--since <epoch-seconds>` 指定基线。真实模式请求 `logcat -b crash -d -v epoch -T`；纯整数基线会补成带小数点的参数，避免被理解为最近 N 行。
+
+Claude 版依赖 logcat 过滤时间窗口，剩余非空输出判为发现崩溃，查询失败直接 FAIL；demo 则用 awk 对预设时间戳做过滤。它没有 Codex 版的 Python 整数纳秒解析。boot 与 PID 检查也保留了简化的输出判断，不能把两端的所有查询校验能力视为相同。
+
+### 7.3 严格验收与离线探索
+
+真实模式必须显式提供 `ANDROID_SERIAL`。在示例或目标源码树根，下面的命令执行严格验收：
+
+```bash
+ANDROID_SERIAL="${ANDROID_SERIAL:?Set the confirmed target serial}" \
+  ./features/dev-sidebar/verify-sidebar.sh
 ```
 
-以 `dev-sidebar` 的 verify 脚本为例，它做四步确定性断言：
+默认以设备启动时间为基线；需要排除早于本次部署的记录时，再传入明确的 `--since`。收工要求输出 `RESULT PASS` 且退出码为 0。
 
-1. `sys.boot_completed=1`（设备真的起来了）；
-2. `system_server` 存活；
-3. crash buffer 扫描（默认以设备启动时间 `/proc/stat` 的 `btime` 为起点；也可用 `--since <epoch-seconds>` 指定本次部署基线；查询失败直接判 FAIL）;
-4. 新增系统服务与边栏应用存在性（`service list` / `pm list packages` 命中）。
+| 最终结果 | 条件 | 退出码 |
+| --- | --- | --- |
+| `RESULT PASS` | 没有 FAIL 或 SKIP | 0 |
+| `RESULT FAIL` | 存在 FAIL | 1 |
+| `RESULT INCOMPLETE` | 无 FAIL，但存在 SKIP | 1 |
+| `RESULT PASS (SKIP allowed)` | 仅 `--demo --allow-skip` 下允许 SKIP | 0，仅用于探索 |
 
-crash 断言必须带明确的时间窗口，否则设备上早于本次开发/部署的历史崩溃会制造假失败。脚本默认读取设备 `/proc/stat` 的 `btime`，只检查本次开机后的 crash；需要把窗口收窄到本次部署时，调用者显式传 `--since <epoch-seconds>`。同时，`adb logcat -b crash` 的非零退出不能解释成“输出为空、所以没有崩溃”，查询失败本身就是 FAIL。
+真实模式传 `--allow-skip` 会返回 2，不能用这个选项放宽设备验收。不连设备时可以运行以下两种演示：
 
-feature 早期可以保留 SKIP，随开发推进逐项转为硬断言——这本身就是一种可执行的进度表；但**默认只要有一个 SKIP，最终就是 `RESULT INCOMPLETE` 并返回非零**。需要展示尚未完成的探索流程时，调用者必须显式加 `--allow-skip`，让“这是探索性通过”成为可见选择。Cuttlefish 作为目标设备在这里显出独特价值：虚拟机的"稳环"（整机镜像 + `cvd stop/start`）是真机没有的兜底手段，push 出诡异状态时可以低成本回到干净基线。
+```bash
+./features/dev-sidebar/verify-sidebar.sh --demo
+DEMO_APP_INSTALLED=0 ./features/dev-sidebar/verify-sidebar.sh --demo --allow-skip
+```
+
+第一条演示全项通过；第二条演示应用缺失时的探索性结果。demo 输出不证明目标 Android 设备上的功能已经实现。
 
 ---
 
 ## 八、串起来：一个会话的完整生命周期
 
-三层不是三个孤立的配置，而是按时间协同的一条流水线：
+开发任务由 agent 执行，wrapper、hooks 和 verifier 分别检查入口、会话状态与验收结果。安装器不负责拉源码、创建所有 feature 分支或自动执行后续开发。
 
 ```mermaid
-flowchart LR
-    Z["首次克隆 / 迁移<br/>install-harness 暴露根 .claude"] --> A["启动前<br/>claude-feature 校验分支并同步 CLAUDE.md"]
-    A --> B["主会话启动<br/>加载正确 feature 上下文"]
-    B --> C["干活时<br/>rg + Read 导航<br/>路径激活 skill"]
-    C --> D["收工前<br/>verify 脚本判定<br/>PASS / FAIL / INCOMPLETE"]
-    D -.每个会话循环.-> A
+flowchart TD
+    Z[首次安装：.claude 指向 features/.harness] --> A[wrapper 识别 feature]
+    A --> B{上下文有效且真实树分支检查通过?}
+    B -- 否 --> X[停止启动，修正配置或分支]
+    B -- 是 --> C[同步 CLAUDE.md，再 exec claude]
+    C --> D[SessionStart：检查链接并写共享快照]
+    D --> E[UserPromptSubmit：比较 feature]
+    E -- 漂移 --> W[输出告警，开发者停止并经 wrapper 重启]
+    W --> A
+    E -- 未漂移 --> F[rg 与源码阅读、修改、选择 skill]
+    F --> G{构建及产物检查通过?}
+    G -- 否 --> F
+    G -- 是 --> H{固定设备并部署，命令均成功?}
+    H -- 否 --> Y[停止后续命令，处理部署失败]
+    Y --> F
+    H -- 是 --> I[运行 verify-sidebar.sh]
+    I -- FAIL或INCOMPLETE --> F
+    I -- PASS且退出0 --> J[报告改动与证据]
+    J --> K[会话结束：合法 SessionEnd 清理快照]
 ```
 
-| 层 | 触发时机 | 管什么 |
-| --- | --- | --- |
-| ① 上下文 | 首次安装 + Claude 启动前 + 每条 prompt | installer 暴露公共 Harness；wrapper 选定 feature；hook 检查分支漂移 |
-| ② 流程 | Read 到匹配路径 | 动到哪片代码就知道怎么编/push/验证 |
-| ③ 验证闭环 | 收工前 | 斩断"编过=改对" |
+图中的漂移后停止、构建检查和验收调用，是开发流程要求。Claude 漂移 hook 本身只输出告警；skill 也不是由脚本自动调度的流水线，agent 需要按上下文执行。
 
-**换 feature 的成本很低**：`repo start dev-next --all` + 建 `features/dev-next/`（含 `CLAUDE.md`、`repos.tsv`、分支检查与 verify 脚本）+ 用 `.claude/bin/claude-feature` 启动新会话。根 `.claude` 安装软链不随 feature 变化，无需重装；wrapper 先按 `repos.tsv` fail-closed 校验涉及仓，再同步根 `CLAUDE.md`。skills 不随 feature 改动（`paths` 按源码路径作用）。
+切换 feature 时，准备 `features/<feature>/CLAUDE.md`、`repos.tsv`、分支检查和验证脚本，并使锚点仓及涉及仓位于对应分支，然后通过 wrapper 开新会话。根 `.claude` 保持不变；根 `CLAUDE.md` 随 feature 更新。仓库另提供 [build-aosp-harness](../skills/build-aosp-harness/SKILL.md)作为搭建或扩展入口，辅助整理这些工件；当前两个运行时示例仍各自独立。
 
-一句话总结这套工作流：
+从本仓根体验流程或检查 Harness 本身时，使用：
 
-> **安装时暴露版本化 Harness，启动前 wrapper 选对上下文，干活时 `rg` / Read 导航并按路径激活 skill，收工前 verify 区分 PASS、FAIL 与 INCOMPLETE。**
+```bash
+bash claude-code/run-demo.sh
+bash scripts/check.sh --offline
+```
+
+`run-demo.sh` 调用安装器和 wrapper 的 `--dry-run`，在私有 fixture 中演示会话漂移，再运行流程检查、demo 验证和客户端回归。`check-branch.sh --demo` 故意让 `build/make` 漂移；脚本返回 1 是预设样本，调用方识别它后继续演示。其他非预期失败仍会使演示失败。
 
 ---
 
@@ -584,7 +630,7 @@ flowchart LR
 
 前面八节呈现的是**结果**——三层各就各位、彼此咬合，读起来像是一开始就照着蓝图搭的。真实过程要曲折得多：这套 harness 不是自顶向下设计出来的架构，而是被一个个具体的失败逼出来的。每一层的定型几乎都走同一条轨迹——**先撞上一个具体故障 → 挖到根因 → 才沉淀出对应的设计决策**，顺序恰恰和成品的呈现顺序相反。
 
-回头看，整个探索大致是**两场"战役"加四轮自审**：第一场解开"随分支 ⇔ 被跟踪 ⇔ 污染 gerrit"的上下文组织死结；第二场把流程知识从"全塞 CLAUDE.md"改造成 path-scoped skill。四轮自审分别修掉真实运行缺陷、两个假设错误（SessionStart 时序不等于启动前选择、子代理也不统一继承根 `CLAUDE.md`）、对代码智能层的实测复核——**结论是整层撤除**，导航退回 `rg` + 源码阅读——以及最后一轮对第②层门控的实测：这一轮结论是**正面的**（`paths` 确实按源码路径生效、不读零占用），但同一次观测顺带揪出了公共层目录名导致的 skill 重复注册。
+早期整机探索记录大致分为**两场"战役"加四轮自审**：第一场解开"随分支 ⇔ 被跟踪 ⇔ 污染 gerrit"的上下文组织死结；第二场把流程知识从"全塞 CLAUDE.md"改造成 path-scoped skill。四轮自审分别修掉真实运行缺陷、两个假设错误（SessionStart 时序不等于启动前选择、子代理也不统一继承根 `CLAUDE.md`）、对代码智能层的实测复核——**结论是整层撤除**，导航退回 `rg` + 源码阅读——以及最后一轮对第②层门控的实测：这一轮结论是**正面的**（`paths` 确实按源码路径生效、不读零占用），但同一次观测顺带揪出了公共层目录名导致的 skill 重复注册。
 
 下面这张时间线先给全局，随后的「元教训」收束这段历程真正的收获。
 
@@ -603,7 +649,23 @@ timeline
 
 **harness 自身也要用工程标准对待**——设计完要评审、加固、实测，而不是"配上了"就算完。代码智能层就是最贵的一课：它配起来了、能跑、单点指标还很漂亮，直到有人去量它的**完整性**才发现不能用。尤其要把“观察到过”与“平台契约保证”分开：根文件在某类自定义子代理里加载过，不代表 Explore/Plan 也加载；SessionStart 能改软链，不代表本次启动已重读。可测试的 wrapper、持续漂移告警和严格 SKIP 语义，都是把隐含假设改成显式接口。
 
-第四轮自审给这条教训补了一个**反向**的样本，同样有用：第②层的门控实测下来是**成立的**——照着文档推的行为和真实观测一致。但同一次观测里冒出了一个纯靠读文档永远发现不了的东西：公共层目录当时叫 `features/.claude/`，于是每个 skill 被注册两次，多出来的那条还带着一句方向反了的选择提示。**它不会让任何东西报错**，只是悄悄多占上下文、并在做 harness 维护时给出错误的推荐——恰好是第②层最该守住的那两件事。所以"去量一次"的价值不在于总能推翻什么，而在于**它是唯一能把"我以为"和"实际是"分开的动作**；量完成立，收获的是可以放心往上叠的地基，以及顺路捡到的那个只有现场才看得见的缺陷。
+早期第四轮自审记录了路径门控的环境观察：第②层的门控实测下来是**成立的**——照着文档推的行为和真实观测一致。但同一次观测里冒出了一个纯靠读文档永远发现不了的东西：公共层目录当时叫 `features/.claude/`，于是每个 skill 被注册两次，多出来的那条还带着一句方向反了的选择提示。**它不会让任何东西报错**，只是悄悄多占上下文、并在做 harness 维护时给出错误的推荐——恰好是第②层最该守住的那两件事。所以"去量一次"的价值不在于总能推翻什么，而在于**它是唯一能把"我以为"和"实际是"分开的动作**；量完成立，收获的是可以放心往上叠的地基，以及顺路捡到的那个只有现场才看得见的缺陷。
+
+### 当前仓库的回归与质量检查
+
+实现的可复现证据分布在客户端测试与仓库级测试中，覆盖入口、执行失败和清理路径：
+
+| 测试入口 | 检查内容 |
+| --- | --- |
+| `.claude/tests/test-harness.sh` | 安装、wrapper、分支检查、流程文件、demo 验证及链接迁移回滚 |
+| [tests/test-runtime-contracts.sh](../tests/test-runtime-contracts.sh) | 原样执行 skill 代码块、ADB/CVD 逐步失败、构建日志与产物、含空格路径 hooks、精确匹配和大列表查询 |
+| [tests/test-device-safety.sh](../tests/test-device-safety.sh) | 显式设备选择、非法 serial、真实模式禁止 allow-skip，以及两端既有回归 |
+| [tests/test-docs.sh](../tests/test-docs.sh) | 文档入口、本地链接和文章旧路径的拒绝用例 |
+| [tests/test-quality-gate.sh](../tests/test-quality-gate.sh) | 检查入口、工具版本、失败传播、静态检查和凭据扫描规则 |
+
+仓库根的 `bash scripts/check.sh --offline` 运行 shell 语法、两端回归、设备保护、文档检查和行为测试。`bash scripts/check.sh --ci` 追加固定版本 ShellCheck 0.11.0、shfmt 3.14.0 与 gitleaks 8.30.1；gitleaks 先用临时测试样本确认扫描器能检出，再扫描工作树。[COVERAGE.md](../tests/COVERAGE.md)记录覆盖边界。
+
+这些检查使用私有临时目录和模拟工具，不启动真实客户端或编译设备镜像。构建成功、部署成功与真实功能通过仍需分别留存证据。
 
 ---
 
@@ -613,11 +675,14 @@ timeline
 
 | 边界 | 说明 |
 | --- | --- |
-| 无符号级索引，全文本导航 | 同名符号密集时要靠路径收窄 + 高信息量锚点（JNI 注册名、`Class::method` 全限定名）压住命中数；换来的是零时效维护与结果完整 |
+| 无符号级索引，全文本导航 | 按路径与符号缩小范围，搜索当前工作树；生成代码、反射、动态注册仍需另行分析，文本匹配不保证完整影响面 |
 | 单树单分支 | repo 树没有 git worktree 等价物，并行两个 feature 需要两棵树 |
 | 子代理上下文不统一 | 普通自定义子代理通常加载 memory hierarchy；内建 Explore/Plan 跳过 `CLAUDE.md`。不注入全文，派发时始终给最小任务卡 |
-| skill 的 `paths` 只门控可见性，不保证被调用 | 门控部分已在整机树上实测确认（第六节那张表：不读零占用、只有匹配的那个进来）；但命中只让 name+description 进入可用列表，正文要模型决定调用才进上下文。因此第②层是"把对的流程摆到手边"，不是"强制执行"；需要强制力的硬约束应下沉到 `features/.harness/rules/*.md`（经根 `.claude/rules/` 暴露）+ `paths`（命中即注入正文） |
-| 公共层的物理目录名是有约束的，不能随手改 | 叫 `.claude` 会触发 skill 重复注册（第四节末），叫不带前导点的名字会和 feature 分支名有撞名风险。改名前先想清楚这两条 |
+| skill 调用依赖客户端与任务选择 | 当前只提供两个 skills，保留 `paths` 元数据；离线检查不验证自动加载。关键流程应明确选择并检查执行证据 |
+| 公共层的物理目录名是有约束的，不能随手改 | 早期环境中叫 `.claude` 曾触发 skill 重复注册（第四节末），叫不带前导点的名字会和 feature 分支名有撞名风险。改名前先想清楚这两条 |
+| 漂移只告警，快照共享 | 不按 session_id 隔离，不检查所有仓；多会话可能覆盖或清理彼此快照 |
+| 两端实现有差异 | Claude 分支清单主要读取首列，构建块较简化；不具备 Codex 的全部 TSV、状态与时间戳校验 |
+| 验收仅覆盖基础状态 | 没有真实 Sidebar 源码与交互断言，也不替代 CTS、VTS、性能和长期稳定性验证 |
 
 **何时重审**：每 3–6 个月、或新一代模型发布后感觉规则见顶时，删过期/矛盾的规则——"为迁就某代模型缺陷写的规则，下一代模型上来就变成束缚"。另加两条我们自己的信号：**依赖的工具链出现弃用声明时立即重审**；**任何"看起来配好了"的能力，要定期量一次它的完整性而不只是延迟**。
 
@@ -632,11 +697,12 @@ timeline
 
 ## 结语
 
-这套 harness 工程没有任何一处依赖"更聪明的模型"：它把一位 AOSP 老工程师带新人时会做的三件事翻译成基础设施——**启动前给对地图（上下文），动到哪片代码就给对应流程（skills），改完必须接受 PASS/FAIL/INCOMPLETE 的机器验证（闭环）**。这些工件统一版本化在 Gerrit projects 之外的 `features/` 仓，并通过两条根软链暴露；跨机同步不再依赖手工复制游离文件。找路本身不需要基础设施：`rg` + 直接读当前源码，全语言通用、零维护、结果完整。索引不是入场券，完整 `CLAUDE.md` 也不是子代理广播包；稳定接口是可验证的安装/启动顺序、单一事实源、最小任务卡和严格验证。
+这套 harness 工程没有任何一处依赖"更聪明的模型"：它把一位 AOSP 老工程师带新人时会做的三件事翻译成基础设施——**启动前给对地图（上下文），动到哪片代码就给对应流程（skills），改完必须接受 PASS/FAIL/INCOMPLETE 的机器验证（闭环）**。这些工件统一版本化在 Gerrit projects 之外的 `features/` 仓，并通过两条根软链暴露；跨机同步不再依赖手工复制游离文件。导航从 `rg` 与当前源码阅读开始；完整影响面仍需结合生成代码和运行时行为判断。索引不是入场券，完整 `CLAUDE.md` 也不是子代理广播包；稳定接口是可验证的安装/启动顺序、单一事实源、最小任务卡和严格验证。
 
 ## 参考资料
 
-- 本文配套可跑 Demo：[yuandaimaahao/aosp-harness-demo](https://github.com/yuandaimaahao/aosp-harness-demo)（三层方案的最小可运行复刻：wrapper `--dry-run`、分支/验证 `--demo`、流程层离线工件检查、根 `CLAUDE.md` 迁移回滚测试；无需真实 AOSP 树，`./run-demo.sh` 一键演示。Demo 是单 Git 仓，故根 `.claude/` 为实体目录；真实部署使用 `features/.harness/` + 安装软链）
+- 本地实现：[Claude Code 示例说明](../claude-code/README.md)、[公共 Harness](../claude-code/features/.harness/)、[dev-sidebar](../claude-code/features/dev-sidebar/)、[回归覆盖](../tests/COVERAGE.md)。
+- 配套仓库：[yuandaimaahao/aosp-harness-demo](https://github.com/yuandaimaahao/aosp-harness-demo)。本地入口为 `bash claude-code/run-demo.sh`，公共配置通过相对软链暴露。
 - Anthropic 官方博客：*How Claude Code works in large codebases*（agentic search 的代价与甜区、"上下文是唯一稀缺资源"、五扩展点 CLAUDE.md/hooks/skills/plugins/MCP + subagents、hooks 的"自我改进"用法、subagents"探索与编辑分离"、"子目录初始化"建议、plugins 分发反部落化、每 3–6 个月重审）
 - utzcoz：*Using Claude Code on AOSP-scale projects*（harness engineering 十模式，https://utzcoz.github.io/2026/04/26/using-claude-code-on-aosp-scale-projects.html）
 - Claude Code 官方文档：hooks / skills / memory / large-codebases；[Subagents — What loads at startup](https://code.claude.com/docs/en/sub-agents#what-loads-at-startup)（普通子代理的隔离上下文、内建 Explore/Plan 跳过 `CLAUDE.md` 与 git status）

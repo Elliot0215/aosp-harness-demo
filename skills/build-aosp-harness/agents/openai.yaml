@@ -1,0 +1,4 @@
+interface:
+  display_name: "AOSP Harness 搭建"
+  short_description: "根据 Android 开发需求搭建功能上下文、构建流程与验证闭环"
+  default_prompt: "使用 $build-aosp-harness，根据我的开发需求和当前源码树，搭建并离线验证适用的 AOSP Harness。"

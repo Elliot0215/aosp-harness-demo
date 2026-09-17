@@ -51,7 +51,7 @@ if [[ "$build_rc" -ne 0 ]]; then
   tail -n 200 "$build_log" >&2
   exit "$build_rc"
 fi
-grep -Fq "#### build completed successfully ####" "$build_log" || exit 1
+grep -Fq "#### build completed successfully" "$build_log" || exit 1
 [[ -f "$artifact" ]] || exit 1
 printf "artifact: %s\n" "$artifact"
 '
@@ -83,13 +83,13 @@ if [[ "$full_build_rc" -ne 0 ]]; then
   tail -n 200 "$full_build_log" >&2
   exit "$full_build_rc"
 fi
-grep -Fq "#### build completed successfully ####" "$full_build_log" || exit 1
+grep -Fq "#### build completed successfully" "$full_build_log" || exit 1
 [[ -f "$image_artifact" ]] || exit 1
-'
-cvd fleet
+' || exit $?
+cvd fleet || exit $?
 cvd_group="${CVD_GROUP:?Set CVD_GROUP to the explicitly confirmed group from cvd fleet}"
-cvd --group_name="$cvd_group" stop
-cvd --group_name="$cvd_group" start
+cvd --group_name="$cvd_group" stop || exit $?
+cvd --group_name="$cvd_group" start || exit $?
 ```
 
 The group selector placement above is the local Cuttlefish `cvd [selectors] command` form.

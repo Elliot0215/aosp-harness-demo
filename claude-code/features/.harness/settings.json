@@ -2,13 +2,13 @@
   "//": "DEMO —— 公共 Harness 的物理位置是 features/.harness；树根 .claude 软链负责标准路径暴露",
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/load-feature.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/load-feature.sh\"" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/check-branch-drift.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/check-branch-drift.sh\"" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-end.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-end.sh\"" } ] }
     ]
   }
 }

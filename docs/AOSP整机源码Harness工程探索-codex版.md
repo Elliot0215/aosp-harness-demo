@@ -1,12 +1,13 @@
 ---
 tags: [codex, android, aosp, harness, 上下文工程, repository-skills]
 created: 2026-07-22
+updated: 2026-09-08
 source: codex
 ---
 
-# AOSP 整机源码 Harness 工程探索
+# AOSP 整机源码 Codex Harness 工程探索
 
-> 本文讨论的不是“怎样让 Codex 记住更多文字”，而是怎样把一棵 AOSP 整机源码树布置成一个可操作、可约束、可验证的工程环境。示例目标是 AOSP 17、Cuttlefish `aosp_cf_x86_64_phone` 和 `dev-sidebar` feature；可运行代码位于本文同目录，入口见 [README](README.md)。
+> 本文讨论的不是“怎样让 Codex 记住更多文字”，而是怎样把一棵 AOSP 整机源码树布置成一个可操作、可约束、可验证的工程环境。示例目标是 AOSP 17、Cuttlefish `aosp_cf_x86_64_phone` 和 `dev-sidebar` feature；可运行代码位于仓库的 `codex/` 目录，入口见 [README](../codex/README.md)。当前仓库仅包含占位源码；离线测试验证 Harness 脚本行为，不代表 AOSP 已构建或功能已通过设备验收。
 
 在小仓库里，给 coding agent 一段需求、让它改代码并跑测试，往往已经够用。整机 AOSP 不一样：树根通常是 `repo` 工作区而不是单一 Git 仓；下面有上千个 project；Java、Kotlin、C++、Rust、AIDL、Soong、SELinux policy 和产品配置共同决定最终行为；一次完整构建与起机验证可能跨越几十分钟甚至数小时。此时，单纯“把模型换强”不能消除工程边界不清、流程易丢和验证证据不足的问题。
 
@@ -16,7 +17,7 @@ source: codex
 2. 流程层回答“改到这类代码时怎样构建、部署、恢复”；
 3. 验证闭环回答“什么证据足以宣布完成”。
 
-本文会持续区分三种性质：**官方文档化行为/能力**是当前 Codex 文档明确描述的产品行为或承载面，不把它扩大成跨版本、跨表面的无条件保证；**Demo 选择**是本仓为了落地这些能力而做的实现；**真实 AOSP 建议**是迁移到生产树时应进一步采用的工程做法。三者不能互相冒充。
+本文会持续区分三种性质：**官方文档化行为/能力**是原文所引 Codex 文档描述的产品行为或承载面，不把它扩大成跨版本、跨表面的无条件保证；**Demo 选择**是本仓为了落地这些能力而做的实现；**真实 AOSP 建议**是迁移到生产树时应进一步采用的工程做法。三者不能互相冒充。本文的实现说明以仓库内脚本为准；外部产品资料保留为设计背景，客户端版本相关行为应在部署环境中另行核对。
 
 ## 一、问题：为什么 Codex 在整机源码树上仍需要 Harness
 
@@ -36,7 +37,7 @@ AOSP 的第一个难点不是代码行数本身，而是尺度混合。一个“
 
 Java 调用可能经 AIDL 进入 Binder，再由 JNI 注册名跨到 native；一个 C++ 方法名可能在多个服务里重复；Soong 通过 `Android.bp`、产品变量和生成代码建立边。若一开始用 `onTransact` 这类泛词扫全树，海量命中会把真正需要的事实淹没。
 
-本 Harness 的导航选择是 `rg`** + live source**：先用仓库和路径缩小范围，再用 JNI 注册名、全限定 `Class::method`、唯一服务名等高信息量锚点搜索，最后读当前工作树里的源码确认调用关系。它的价值是零准备、结果对应当前 checkout，也适合教学 demo。
+本 Harness 的导航选择是 **`rg` + live source**：先用仓库和路径缩小范围，再用 JNI 注册名、全限定 `Class::method`、唯一服务名等高信息量锚点搜索，最后读当前工作树里的源码确认调用关系。它的价值是零准备、结果对应当前 checkout，也适合教学 demo。
 
 但这只是本方案的工程选择，不是“Codex 从不索引”的产品断言。Codex 的不同表面可以拥有不同的搜索或上下文能力；本文也不会把一次 `rg` 命中包装成完整引用图。对影响面仍未确认的地方，应明确列出源码路径、关键符号和未知边界。
 
@@ -79,7 +80,7 @@ AOSP 构建常见的错误并非命令写错，而是监督方式写错：
 
 ## 二、官方能力边界：Codex 提供了哪些承载面
 
-下面先不谈本 demo 怎样实现，只看当前官方文档明确给出的承载面。
+本节保留原文引用的官方能力背景；后续章节对照本仓当前实现说明实际采用的部分。
 
 | 能力面 | 官方文档化行为/能力 | Demo 选择 | 真实 AOSP 建议 |
 | --- | --- | --- | --- |
@@ -120,11 +121,11 @@ skill 有两种选择方式：
 - 显式：提示中写 `$skill-name`，或在 CLI / IDE 使用 `/skills`；
 - 隐式：任务与 skill 的 `description` 匹配时，Codex可以选择它。
 
-这也说明 `description` 是隐式路由的公开接口，应该写清触发条件与边界。当前官方文档**没有已文档化的 **`paths:`** 路径触发契约**。本仓 Claude Code demo 的 skill frontmatter 虽然含 `paths`，迁移到 Codex 时不能假定“读到某个 glob 就必然激活”。Codex demo 改为标准 `name`/`description`，再由 feature `AGENTS.md` 对关键路径写显式 `$build-services-jar` 和 `$build-sepolicy` 路由。
+这也说明 `description` 是隐式路由的公开接口，应该写清触发条件与边界。当前官方文档**没有已文档化的 `paths:` 路径触发契约**。本仓 Claude Code demo 的 skill frontmatter 虽然含 `paths`，迁移到 Codex 时不能假定“读到某个 glob 就必然激活”。Codex demo 改为标准 `name`/`description`，再由 feature `AGENTS.md` 对关键路径写显式 `$build-services-jar` 和 `$build-sepolicy` 路由。
 
 ### 2.4 Hooks：生命周期 guardrail，不是指令链热更新器
 
-Codex 可从 `hooks.json` 或 `config.toml` 的 **inline **`[hooks]` 表加载 hook。结构是“事件 → matcher group → command handler”。多个来源的匹配 hook 会一起运行；同一事件的多个 command hook 可能并发启动，所以不能依赖 hook A 阻止 hook B 开始。
+Codex 可从 `hooks.json` 或 `config.toml` 的 **inline** `[hooks]` 表加载 hook。结构是“事件 → matcher group → command handler”。多个来源的匹配 hook 会一起运行；同一事件的多个 command hook 可能并发启动，所以不能依赖 hook A 阻止 hook B 开始。
 
 项目 hook 有两道信任边界：
 
@@ -191,7 +192,7 @@ codex/
 └── tests/{test-harness,test-install-harness}.sh
 ```
 
-通用脚本、hooks 与 skills 的物理源集中在 `features/.harness/`。真实 AOSP 中可把整个 `features/` 独立成 Git 仓，复制时须包含隐藏目录。在树根运行 `bash features/install-harness.sh` 创建 `.codex` 与 `.agents/skills` 相对软链；安装器可重复执行，冲突时拒绝覆盖。切换 feature 仍由 wrapper 在启动新会话前更新根 `AGENTS.md`，无需复制通用 Harness。
+通用脚本、hooks 与 skills 的物理源集中在 `features/.harness/`。真实 AOSP 中可把整个 `features/` 独立成 Git 仓，复制时须包含隐藏目录。在树根运行 `bash features/install-harness.sh` 创建 `.codex` 与 `.agents/skills` 相对软链；安装器可重复执行，冲突时拒绝覆盖。切换 feature 仍由 wrapper 在启动新会话前更新根 `AGENTS.md`，无需复制通用 Harness。安装器不负责初始化独立 Git 仓、创建源码分支或生成新 feature；这些准备工作需先完成。
 
 ### 3.2 三层职责
 
@@ -245,7 +246,7 @@ AGENTS.md -> features/dev-sidebar/AGENTS.md
 
 ### 4.2 feature 探测与保守命名
 
-`.codex/bin/codex-feature` 先查看几个稳定锚点仓：`frameworks/base`、`frameworks/native`、`frameworks/av`、`system/core`。找到合法 Git 仓并处于 symbolic branch 时，取其分支名；否则读取 `CURRENT_FEATURE`。
+`.codex/bin/codex-feature` 先查看几个稳定锚点仓：`frameworks/base`、`frameworks/native`、`frameworks/av`、`system/core`。按顺序采用首个合法 Git 仓的 symbolic branch；只有没有可用分支时才读取 `CURRENT_FEATURE`。首个候选分支名若不符合命名规则，会直接拒绝，不会继续寻找另一个合法名字。
 
 demo 对 feature 名故意保守，只接受**单行 ASCII 单组件**：
 
@@ -257,7 +258,7 @@ demo 对 feature 名故意保守，只接受**单行 ASCII 单组件**：
 
 ### 4.3 repos.tsv 是涉及仓单一事实源
 
-`features/dev-sidebar/repos.tsv` 每行三个非空字段：仓路径、期望 feature、说明。例如：
+`features/dev-sidebar/repos.tsv` 每行三个以 Tab 分隔的非空字段：仓路径、期望 feature、说明。第二列必须与当前 feature 一致；不能直接复制 Claude 版的四列说明格式。例如：
 
 ```text
 frameworks/base	dev-sidebar	SidebarService、SystemServer 注册和 public/System API
@@ -275,13 +276,16 @@ wrapper 只有在树根存在 `.repo/` 目录时才把它视为真实 repo 树�
 
 ### 4.4 wrapper 的顺序就是正确性协议
 
-核心顺序可以浓缩为：
+以下是省略错误诊断的顺序示意，共用函数来自 [feature-common.sh](../codex/features/.harness/codex/hooks/feature-common.sh)，完整入口见 [codex-feature](../codex/features/.harness/codex/bin/codex-feature)：
 
 ```bash
+set -euo pipefail
 feature="$(detect_feature "$ROOT")"
-target="features/$feature/AGENTS.md"
-HARNESS_ROOT="$ROOT" FEATURE_NAME="$feature" \
-  "$ROOT/features/$feature/check-branch.sh"
+target="$(feature_context_path "$ROOT" "$feature")"
+if [[ -d "$ROOT/.repo" ]]; then
+  HARNESS_ROOT="$ROOT" FEATURE_NAME="$feature" \
+    "$ROOT/features/$feature/check-branch.sh"
+fi
 sync_feature_link "$ROOT" "$target"
 cd "$ROOT"
 exec codex "$@"
@@ -342,7 +346,9 @@ exec codex "$@"
 ${TMPDIR:-/tmp}/aosp-codex-harness-$UID/<session_id>.feature
 ```
 
-目录权限被收紧为 `0700`，快照为 `0600`。`check-branch-drift.sh` 在每次 `UserPromptSubmit` 比较快照与当前 feature；相同则退出 0 且零输出，不同则返回 `"continue": false`、`stopReason` 和重启提示。
+可用 `CODEX_HARNESS_STATE_DIR` 覆盖默认目录。目录权限被收紧为 `0700`，快照为 `0600`。`check-branch-drift.sh` 在每次 `UserPromptSubmit` 比较快照与当前 feature；相同则退出 0 且零输出，不同则返回 `"continue": false`、`stopReason` 和重启提示。输入非法、快照缺失或不安全、当前 feature 无法确认时也会阻断，不会默认为一致。
+
+配置中的 SessionStart matcher 仅为 `startup`，恢复已有会话不会靠这个配置重新写基线。当前没有 SessionEnd hook，也没有自动删除会话快照的逻辑；恢复所需状态与历史文件清理需另外管理。
 
 这个 hook 的检测范围有意很窄：它只比较 active feature token。当前 token 来自 `detect_feature` 找到的第一个可用锚点仓，找不到锚点分支时才 fallback 到 `CURRENT_FEATURE`。`UserPromptSubmit` 不会持续重跑 `repos.tsv`，因此只要 active token 不变，它不能发现非锚点仓的分支漂移，也不能替代完整涉及仓检查。
 
@@ -357,7 +363,7 @@ printf '%s\n' "$session_payload" | ./.codex/hooks/session-start.sh
 printf '%s\n' "$prompt_payload" | ./.codex/hooks/check-branch-drift.sh
 ```
 
-第一条记录“本会话从哪里开始”，第二条只检测漂移。若 `CURRENT_FEATURE` 已改变，正确响应不是在同一 run 中换 `AGENTS.md`，而是停止工作、保存未提交状态、通过 `.codex/bin/codex-feature` 新建运行。
+这是手工测试脚本的示意，不验证客户端事件是否触发，也不应在实际会话中重复写快照来消除告警。第一条记录“本会话从哪里开始”，第二条只检测漂移。若 active feature 已改变（没有锚点分支时才由 `CURRENT_FEATURE` 决定），正确响应不是在同一 run 中换 `AGENTS.md`，而是停止工作、保存未提交状态、通过 `.codex/bin/codex-feature` 新建运行。
 
 ### 4.7 Feature AGENTS.md 应写什么
 
@@ -373,7 +379,7 @@ printf '%s\n' "$prompt_payload" | ./.codex/hooks/check-branch-drift.sh
 
 ### 5.1 两个 skills，各自只做一件事
 
-demo 只有两个 repository skills：
+demo 只有两个 repository skills，源码位于 [features/.harness/skills](../codex/features/.harness/skills/build-services-jar/SKILL.md)。当前没有 SidebarFlinger 或其他 native 模块的专用构建 skill，涉及这些模块时需要补齐流程：
 
 | Skill | 触发语义 | 负责内容 |
 | --- | --- | --- |
@@ -416,12 +422,12 @@ if [[ "$build_rc" -ne 0 ]]; then
   tail -n 200 "$build_log" >&2
   exit "$build_rc"
 fi
-grep -Fq "#### build completed successfully ####" "$build_log" || exit 1
+grep -Fq "#### build completed successfully" "$build_log" || exit 1
 [[ -f "$artifact" ]] || exit 1
 '
 ```
 
-这里有四重证据：子进程退出码、唯一 `mktemp` 日志、`build completed successfully` 标记、预期 artifact。构建必须留在**同一个 exec session**；开始后应持续轮询同一会话，直到 `wait` 返回。若另起 shell 猜测进程状态，就丢失了最重要的完成证据。
+这里有四重证据：子进程退出码、唯一 `mktemp` 日志、`build completed successfully` 标记、预期 artifact。成功标记只匹配稳定前缀，兼容 AOSP 在其后追加的构建耗时。构建必须留在**同一个 exec session**；开始后应持续轮询同一会话，直到 `wait` 返回。若另起 shell 猜测进程状态，就丢失了最重要的完成证据。
 
 SELinux skill 使用同样协议，但目标是：
 
@@ -436,24 +442,54 @@ out/target/product/vsoc_x86_64/system/etc/selinux/plat_sepolicy.cil
 
 `services.jar` 可以形成较快部署环：确认设备、root、remount、push、reboot。但 jar 与 dexpreopt、boot image、ART 缓存不一致时，设备可能慢启甚至起不来。这时需要完整镜像稳环，而不是反复 push 猜测。
 
-完整构建也必须从自己的 Bash 环境开始，采用唯一日志、retained child、成功标记和 `system.img` 产物检查。之后先查看 fleet，再固定组：
+完整构建从新的 Bash 环境开始，保留子进程并检查 `system.img`。下面与当前 services skill 的完整构建块一致，注意末尾 `bash -c` 的失败也必须传回外层 shell：
 
 ```bash
-cvd fleet
-cvd_group="${CVD_GROUP:?Set CVD_GROUP after explicit confirmation}"
-cvd --group_name="$cvd_group" stop
-cvd --group_name="$cvd_group" start
+bash -c '
+set -u
+full_build_log="$(mktemp "${TMPDIR:-/tmp}/build-full-services.XXXXXX.log")"
+image_artifact="out/target/product/vsoc_x86_64/system.img"
+printf "full build log: %s\n" "$full_build_log"
+(
+  source build/envsetup.sh >/dev/null 2>&1 &&
+  lunch aosp_cf_x86_64_phone-trunk_staging-userdebug >/dev/null 2>&1 &&
+  m
+) >"$full_build_log" 2>&1 &
+full_build_pid=$!
+while kill -0 "$full_build_pid" 2>/dev/null; do
+  tail -n 20 "$full_build_log"
+  sleep 10
+done
+wait "$full_build_pid"
+full_build_rc=$?
+if [[ "$full_build_rc" -ne 0 ]]; then
+  tail -n 200 "$full_build_log" >&2
+  exit "$full_build_rc"
+fi
+grep -Fq "#### build completed successfully" "$full_build_log" || exit 1
+[[ -f "$image_artifact" ]] || exit 1
+' || exit $?
+cvd fleet || exit $?
+cvd_group="${CVD_GROUP:?Set CVD_GROUP to the explicitly confirmed group from cvd fleet}"
+cvd --group_name="$cvd_group" stop || exit $?
+cvd --group_name="$cvd_group" start || exit $?
 ```
 
-`cvd --group_name` 的 selector 位于 command 前。不能在可能存在多个实例时直接 `cvd stop`，也不能从上一次会话猜 group。
+`cvd --group_name` 的 selector 位于 command 前。不能在可能存在多个实例时直接 `cvd stop`，也不能从上一次会话猜 group。构建块的退出码必须由外层 shell 检查，失败时不得继续部署；ADB 和 CVD 各步骤失败也必须立即退出，避免后续重启掩盖失败。
 
 ### 5.4 每条 ADB 命令都要钉住同一个设备
 
-真实设备路径先要求：
+services skill 的完整设备代码块如下，每一步失败都保留原退出码并停止后续操作：
 
 ```bash
 device_serial="${ANDROID_SERIAL:?Set ANDROID_SERIAL to the explicitly confirmed target serial}"
-adb -s "$device_serial" get-state
+adb -s "$device_serial" get-state || exit $?
+adb -s "$device_serial" root || exit $?
+adb -s "$device_serial" remount || exit $?
+adb -s "$device_serial" push \
+  out/target/product/vsoc_x86_64/system/framework/services.jar \
+  /system/framework/services.jar || exit $?
+adb -s "$device_serial" reboot || exit $?
 ```
 
 随后所有 `root`、`remount`、`push`、`reboot`、`dmesg`、`service list` 都保留 `-s "$device_serial"`。`ANDROID_SERIAL` 不是随手的默认值，而是用户明确确认目标之后形成的会话输入。尤其在 Cuttlefish 多实例和 USB 真机并存时，一条未固定的 `adb reboot` 就可能改变错误设备。
@@ -487,7 +523,7 @@ PASS  build-sepolicy skill 工件完整
 RESULT PASS
 ```
 
-它不是“skill 一定被 Codex 自动选择”的测试，而是流程工件本身的可回归契约。
+它检查流程工件的静态契约，不证明 skill 一定被 Codex 自动选择。仓库级 [test-runtime-contracts.sh](../tests/test-runtime-contracts.sh)还会提取实际 Markdown 构建和部署块，使用 fake envsetup、lunch、m、ADB 与 CVD 验证行为：构建失败、标记或产物缺失时不得部署，ADB/CVD 任一步失败时不得继续，带耗时或颜色的正常成功标记应被接受。
 
 ## 六、第③层 验证闭环：只有 RESULT PASS 才算完成
 
@@ -496,20 +532,19 @@ RESULT PASS
 `features/dev-sidebar/verify-sidebar.sh` 在 demo 中固定执行**五项断言**：
 
 1. `sys.boot_completed` 必须等于 `1`；
-2. `pidof system_server` 必须查询成功且 PID 非空；
+2. `pidof system_server` 必须查询成功，且输出为一个或多个数字 PID；
 3. 专用 `crash buffer` 自基线以来不能出现 timestamped record；
-4. `service list` 必须包含 `sidebar:`；
-5. `pm list packages` 必须包含 `com.android.sidebar`，否则按策略记 SKIP。
+4. `service list` 必须包含名称边界正确的 `sidebar:`；
+5. `pm list packages` 必须包含完整条目 `package:com.android.sidebar`，查询成功但缺失时记 SKIP。
 
-真实模式下所有查询经同一个 `ANDROID_SERIAL`：
+真实模式下所有查询经同一个 `ANDROID_SERIAL`。在示例或目标源码树根运行严格验收：
 
 ```bash
-adb -s "$ANDROID_SERIAL" shell getprop sys.boot_completed
-adb -s "$ANDROID_SERIAL" shell pidof system_server
-adb -s "$ANDROID_SERIAL" logcat -b crash -d -v epoch,nsec -T "$baseline"
-adb -s "$ANDROID_SERIAL" shell service list
-adb -s "$ANDROID_SERIAL" shell pm list packages
+ANDROID_SERIAL="${ANDROID_SERIAL:?Set the confirmed target serial}" \
+  ./features/dev-sidebar/verify-sidebar.sh
 ```
+
+脚本内部依次查询 boot property、system_server PID、crash buffer、服务列表和包列表。默认使用设备启动时间作为 crash 基线；指定时间窗口时再传入 `--since`。
 
 ### 6.2 查询失败与“对象不存在”必须分开
 
@@ -523,7 +558,7 @@ adb -s "$ANDROID_SERIAL" shell pm list packages
 | package | `FAIL  package list 查询失败` | `SKIP  com.android.sidebar 未安装` |
 | crash | `FAIL  crash buffer 查询失败` | 空记录才可能 PASS |
 
-特别是 crash 查询，命令失败绝不能解释成“没有崩溃”。这种错误会制造最危险的假阳性。
+特别是 crash 查询，命令失败绝不能解释成“没有崩溃”。服务和包查询先完整捕获输出并检查状态，再匹配文本，避免 `adb ... | grep -q` 在长输出下因 SIGPIPE 误报失败。`other_sidebar:`、`com.android.sidebar.fake` 和 `comXandroidYsidebar` 都不能冒充目标。PID 非空但格式非法也会 FAIL。
 
 ### 6.3 SKIP 默认是不完整，不是成功
 
@@ -533,7 +568,7 @@ verifier 最终只有三种严格结论：
 - `RESULT FAIL`：至少一个 FAIL，退出非零；
 - `RESULT INCOMPLETE`：没有 FAIL 但存在 SKIP，默认退出非零。
 
-`--allow-skip` 只服务于探索。它会输出 `RESULT PASS (SKIP allowed)`，但不能作为交付证据。收工标准仍是精确的 `RESULT PASS`。
+`--allow-skip` 只允许与 `--demo` 同用；真实模式传入它会以退出码 2 拒绝。demo 中它可以输出 `RESULT PASS (SKIP allowed)`，但不能作为交付证据。严格模式的 FAIL 和 INCOMPLETE 均退出 1，收工标准是精确的 `RESULT PASS` 且退出码为 0。
 
 ### 6.4 基线必须显式或可解释
 
@@ -592,11 +627,11 @@ DEMO_CRASH_QUERY_FAIL=1 \
 ```mermaid
 flowchart TD
     A[从 AOSP 树根调用 codex-feature] --> B[探测 feature]
-    B --> C{名称/上下文/涉及仓都有效?}
+    B --> C{名称和上下文有效?<br/>有 .repo 时涉及仓也通过?}
     C -- 否 --> X[Fail closed: 不切链接、不启动]
     C -- 是 --> D[原子更新根 AGENTS.md 软链]
     D --> E[exec codex: once per run 发现指令链]
-    E --> F[SessionStart: 按 session_id 记录 feature 快照]
+    E --> F[SessionStart startup: 按 session_id 记录快照]
     F --> O[UserPromptSubmit: 每个 turn 开始前检查]
     R[下一 user turn]
     R --> O
@@ -611,8 +646,10 @@ flowchart TD
     T --> R
     I --> K[定向构建/部署]
     J --> K
-    K --> L[verify-sidebar.sh]
-    L --> M{精确 RESULT PASS?}
+    K --> V{构建和部署均成功?}
+    V -- 否 --> G
+    V -- 是 --> L[verify-sidebar.sh]
+    L --> M{精确 RESULT PASS 且退出 0?}
     M -- 否 --> G
     M -- 是 --> N[整理证据并完成]
 ```
@@ -620,17 +657,17 @@ flowchart TD
 一次理想会话按以下节奏运行：
 
 1. 开发者从树根运行 `.codex/bin/codex-feature`；
-2. wrapper 探测锚点仓分支或 `CURRENT_FEATURE`，再校验 feature 上下文和 `repos.tsv`；
+2. wrapper 探测锚点仓分支或 `CURRENT_FEATURE`，校验 feature 上下文；有 `.repo/` 时再校验 `repos.tsv`；
 3. 根软链就绪后才启动 Codex，AGENTS 指令链建立；
-4. `SessionStart` 以 `session_id` 保存 feature 快照；
+4. `SessionStart` 的 `startup` 事件以 `session_id` 保存 feature 快照；
 5. 每个新 user turn 在探索或构建前先由 `UserPromptSubmit` 比较 active feature token；
 6. 主代理用 `rg` 与 live source 探索，必要时派出带任务卡的只读 subagent；
 7. 改 services 或 sepolicy 时显式采用对应 skill，构建与部署保留完整证据；
 8. 构建交接或完成前重新运行 `./features/dev-sidebar/check-branch.sh`，覆盖 hook 不检查的非锚点仓；
-9. verifier 必须得到精确 `RESULT PASS`；
+9. verifier 必须得到精确 `RESULT PASS` 且退出 0；
 10. 若 active feature token 漂移，`UserPromptSubmit` 阻断，回到 wrapper 开新运行。
 
-这条链中没有任何一步可以由“模型说看起来没问题”替代。模型负责推理和操作，脚本负责不可含糊的状态转换。
+wrapper 与 hooks 只负责入口和事件检查，不会自动执行整条构建验收流水线。读取 skill、调用构建部署块、重跑分支检查和 verifier，仍由 agent 按任务组织；是否完成应由实际执行证据判断。
 
 ## 八、从 Claude Code 版迁移时不能直接照搬什么
 
@@ -642,8 +679,13 @@ flowchart TD
 | skill 目录 | `.claude/skills` | `.agents/skills` | 将流程迁到 Codex repository skill 位置 |
 | skill 路径假设 | 示例 frontmatter 使用 `paths` 并声称 glob 激活 | 当前公开契约按显式 `$skill` 或 `description` 隐式选择 | 删除 `paths` 依赖，在 AGENTS 中显式 route 关键流程 |
 | hook 配置 | `.claude/settings.json`，命令引用 `${CLAUDE_PROJECT_DIR}` | `.codex/hooks.json` 或 inline `[hooks]`，使用 Codex 事件 schema | 按 Codex 字段重写并通过 `/hooks` 信任审查 |
-| 启动 hook | SessionStart 做软链检查/fallback | SessionStart 只记录 feature snapshot | 首次上下文选择留在 wrapper 之前 |
-| 漂移输出 | demo 自己定义告警行为 | `UserPromptSubmit` 返回 Codex 支持的 `continue:false` 结构 | 按事件输出契约实现停止与重启提示 |
+| 启动 hook | 无 matcher，每次收到 SessionStart 都写快照并检查软链 | 仅 `startup` 写会话快照 | 首次上下文选择留在 wrapper 之前 |
+| 快照生命周期 | TMPDIR 下共享单文件，合法 SessionEnd 后删除 | 按 `session_id` 隔离，可配置状态目录，无自动清理 | 分别设计恢复、并发和清理行为 |
+| 普通根指引文件 | wrapper 先备份普通 `CLAUDE.md` 再替换 | wrapper 拒绝覆盖普通 `AGENTS.md` | 保留各自的数据保护策略 |
+| 涉及仓格式 | 四列说明格式，checker 只消费首列仓路径，统一比较 FEATURE_NAME | 严格三列 TSV，含期望 feature | 迁移时转换格式并校验 |
+| 构建监督 | 简化 Bash 构建命令 | 同一 shell 保留 PID、wait、唯一日志、成功前缀和产物检查 | 不把 Codex 的完整协议描述成两版现状 |
+| crash 判断 | 真实模式依赖 logcat 时间过滤，demo 用 awk | Python 整数纳秒解析与比较 | 保留各自的精度和解析边界 |
+| 漂移输出 | 只输出告警并退出 0，缺快照不阻断 | `UserPromptSubmit` 返回 Codex 支持的 `continue:false` 结构 | 按事件输出契约实现停止与重启提示 |
 | wrapper | `.claude/bin/claude-feature`，最后 `exec claude` | `.codex/bin/codex-feature`，最后 `exec codex` | 保留先校验、后链接、再启动的顺序，替换产品入口 |
 | 环境变量 | Claude demo hook 使用 Claude 项目变量 | Codex command hook常用输入是 `session_id`、`cwd`、`hook_event_name` | 不假设存在 Claude 专用环境变量 |
 | 子代理上下文 | README 对 Explore/Plan 有该 demo 自己的假设 | 任务卡是稳定接口，不假设完整 feature 自动继承 | 在派发 prompt 显式写目标、范围、约束、证据 |
@@ -653,15 +695,15 @@ flowchart TD
 
 ## 九、工程化加固与测试
 
-### 9.1 文档与脚本都要先写契约测试
+### 9.1 文档与脚本共同接受检查
 
-本 demo 的 `tests/test-harness.sh` 不只测试“happy path”，还把文章、README、skills、hooks 和 verifier 当成工程接口。长文采用同样的 TDD 顺序：先追加标题、章节、官方链接、关键事实、禁写断言与本地链接解析测试；观察文章缺失导致 RED；再写文章直到 GREEN。
+[test-harness.sh](../codex/tests/test-harness.sh)把文章、README、skills、hooks 和 verifier 当成可检查的工程接口。长文检查覆盖标题、章节、参考链接、关键事实、禁写断言和本地链接解析。当前文章位于仓库的 `docs/`，Codex README 通过 `../docs/` 引用它；测试也使用迁移后的路径。
 
-这样做可以防止文档在后续重构中悄悄重新引入错误产品 claim，例如把路径命中写成必然选择、把 SessionStart 写成同 run 热换 AGENTS、忽略 hook trust，或把子代理描述成全上下文复制。
+仓库级 [check-docs.sh](../scripts/check-docs.sh)检查根 README、客户端 README 与两篇文章中的本地 Markdown 链接，忽略代码围栏中的示意内容以及外部 URL、页内锚点。[test-docs.sh](../tests/test-docs.sh)覆盖旧文章路径重新出现时必须失败的回归。链接检查只能证明本地入口可解析，不能验证外部网页的内容或客户端产品行为。
 
 ### 9.2 回归类别
 
-现有测试大致分成七组：
+客户端测试覆盖以下七组，完整覆盖说明见 [tests/COVERAGE.md](../tests/COVERAGE.md)：
 
 1. feature 输入：路径穿越、slash、空值、换行、NUL、非法锚点分支；
 2. 涉及仓：缺仓、实际 DRIFT、DETACHED、损坏 Git metadata、TSV 格式；
@@ -671,6 +713,8 @@ flowchart TD
 6. 流程层：skill metadata、保留构建、产物、ADB pin、CVD group、canonical SELinux；
 7. 验证层：五态查询语义、严格 SKIP、`btime`、`epoch,nsec` 纳秒边界、真实 ADB 全量 pin、demo 隔离。
 
+仓库级运行行为回归另外覆盖两版 ADB 失败传播、Codex 定向与全量构建的完成判据、CVD 失败后停止、两版服务与包名精确匹配、长列表输出，以及含空格路径下的 Claude hook 命令。所有外部工具均用测试替身，不需要设备或客户端认证。
+
 ### 9.3 失败驱动的加固
 
 这些防线都对应过一种具体的错误模式：
@@ -679,6 +723,9 @@ flowchart TD
 - **no-follow hook state**：状态目录逐级 `lstat`，用 `O_NOFOLLOW` 打开，拒绝 symlink 与 `.`/`..` 组件；
 - **ADB pinning**：真实模式在执行任何 ADB 前先校验 `ANDROID_SERIAL`，之后每条查询都带 `-s`；
 - **retained builds**：构建、轮询、`wait` 和结果判断处于同一个 exec session；
+- **成功前缀**：只匹配 `#### build completed successfully`，避免将带耗时的正常构建判失败；
+- **失败传播**：外层 shell 检查全量构建退出码，ADB 和 CVD 每步失败立即退出，避免失败后仍 reboot 或 start；
+- **精确对象匹配**：完整读取查询输出，既拒绝相似服务或包名，也避免长输出触发 SIGPIPE 误判；
 - **canonical SELinux**：测试拒绝旧的裸 SystemServer allow，要求 `system_server_service` 属性；
 - **exact crash timestamps**：比较整数纳秒，覆盖等于基线、前一纳秒、后一纳秒与大 epoch；
 - **demo state isolation**：集成 demo 在私有临时树制造漂移，不写真实 `CURRENT_FEATURE`，异常退出也恢复原 `AGENTS.md`。
@@ -719,12 +766,24 @@ cd codex
 Codex 三层 Harness 演示完毕
 ```
 
+仓库根还提供统一检查入口：
+
+```bash
+bash scripts/check-docs.sh
+bash scripts/check.sh --offline
+bash scripts/check.sh --ci
+```
+
+`--offline` 覆盖 shell 语法、两端回归、设备保护、运行行为与文档检查。`--ci` 额外要求固定版本 ShellCheck 0.11.0、shfmt 3.14.0、gitleaks 8.30.1；这些工具需预先可用。`run-demo.sh` 展示客户端流程，仓库级完整检查由 `scripts/check.sh` 组织。
+
 ## 十、边界与下一步
 
 ### 10.1 当前边界
 
 这套 demo 有意保持有限：
 
+- 源码为占位文件，fake build/ADB/CVD 只能证明脚本控制流，不能证明真实系统能编译、起机或载入了本次产物；
+- 示例固定 lunch 产品、产物路径和服务名；接入真实树时须同步配置，并确认 CVD group 使用的镜像确实来自本次构建；
 - 一次只管理一棵树和一个 active feature；没有跨树协调器；
 - feature 名不支持 slash，换取安全的单组件路径；
 - project hook 必须完成项目 trust 与 `/hooks` 定义信任，否则漂移保护不会运行；
@@ -733,7 +792,9 @@ Codex 三层 Harness 演示完毕
 - `rg` 导航不提供完整语义索引，生成代码、反射、动态注册和 build graph 仍需专门确认；
 - subagent 会增加 token 成本，写任务共享工作树和设备时还会带来冲突；
 - hook state 对常见 symlink/path 风险做了防护，但完整 same-UID race 防御不在教学范围；
-- verifier 只覆盖示例 feature 的五项结果，不替代 CTS、VTS、GTS、性能和长期稳定性测试。
+- 只有 services 和 sepolicy 两个构建 skills；native、应用等流程还需补齐；
+- hook 不持续检查非锚点仓，也没有会话快照自动清理；
+- verifier 只覆盖启动与对象存在性，不验证 Binder 调用、边栏 UI、native 合成，也不替代 CTS、VTS、GTS、性能和长期稳定性测试。
 
 ### 10.2 下一步演化
 
@@ -742,7 +803,7 @@ Codex 三层 Harness 演示完毕
 1. **plugin 分发**：当多个项目复用同一组 skills、hooks 和工具时，建立版本化安装与升级；
 2. **handoff**：把 feature 事实、当前 diff、构建产物、验证证据生成标准交接包，减少跨班次上下文丢失；
 3. **reflection**：从失败日志中提取“是否应升级为 skill、AGENTS 规则或 verifier 断言”，但仍由人审查后入库；
-4. **review gates**：把 `repos.tsv`、process checker、verifier、链接检查和事实扫描接入 CI 或提交前检查。
+4. **设备验收接入**：现有 CI 已覆盖离线门禁，下一步把真实涉及仓检查、构建证据和设备 verifier 接入受控的交付流程。
 
 还可以为不同 feature 生成 task card 模板，为只读探索建立低成本 subagent role，为设备操作建立串行队列。但每项增强都应保持同一个原则：可选智能能力可以提高效率，交付正确性必须由清晰协议和可复现证据兜底。
 
@@ -753,6 +814,11 @@ Codex 三层 Harness 演示完毕
 `AGENTS.md`、skills、hooks、subagents 与 sandbox 各有官方边界。工程实现只有尊重这些边界，才不会把“方便的假设”写成“产品保证”。本 demo 最重要的产物也不是某个 shell 技巧，而是一条可以审计的链：**正确上下文 → 正确流程 → 正确验证 → 证据充分后完成**。
 
 ## 参考资料
+
+- [Codex 示例入口](../codex/README.md)
+- [启动 wrapper](../codex/features/.harness/codex/bin/codex-feature)
+- [验证脚本](../codex/features/dev-sidebar/verify-sidebar.sh)
+- [仓库测试覆盖](../tests/COVERAGE.md)
 
 - [Custom instructions with AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 - [Build skills](https://learn.chatgpt.com/docs/build-skills)

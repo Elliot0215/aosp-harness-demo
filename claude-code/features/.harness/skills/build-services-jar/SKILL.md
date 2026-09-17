@@ -24,16 +24,18 @@ bash -c 'source build/envsetup.sh >/dev/null 2>&1 \
 
 ## push 清单（快环）
 
+此教学片段没有不可变备份、原子替换、整组回滚或新启动周期验证。适配真实设备时实现并测试事务部署入口，不能将直接 push 用于正在 mmap 的 ELF；参见本仓的 [部署事务参考](../../../../../skills/build-aosp-harness/references/deployment-transactions.md)。
+
 ```bash
 device_serial="${ANDROID_SERIAL-}"
 if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
   echo 'error: set ANDROID_SERIAL to a safe, explicit target serial' >&2
   exit 2
 fi
-adb -s "$device_serial" root
-adb -s "$device_serial" remount
-adb -s "$device_serial" push out/target/product/vsoc_x86_64/system/framework/services.jar /system/framework/services.jar
-adb -s "$device_serial" reboot
+adb -s "$device_serial" root || exit $?
+adb -s "$device_serial" remount || exit $?
+adb -s "$device_serial" push out/target/product/vsoc_x86_64/system/framework/services.jar /system/framework/services.jar || exit $?
+adb -s "$device_serial" reboot || exit $?
 ```
 
 ## 已知坑

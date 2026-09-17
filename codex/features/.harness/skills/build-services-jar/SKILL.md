@@ -34,27 +34,33 @@ if [[ "$build_rc" -ne 0 ]]; then
   tail -n 200 "$build_log" >&2
   exit "$build_rc"
 fi
-grep -Fq "#### build completed successfully ####" "$build_log" || exit 1
+grep -Fq "#### build completed successfully" "$build_log" || exit 1
 [[ -f "$artifact" ]] || exit 1
 printf "artifact: %s\n" "$artifact"
 '
 ```
 
-Build success requires the child exit status, the explicit `#### build completed successfully ####` marker, and the artifact `out/target/product/vsoc_x86_64/system/framework/services.jar`.
+Build success requires the child exit status, the stable `#### build completed successfully` prefix (AOSP appends elapsed time), and the artifact `out/target/product/vsoc_x86_64/system/framework/services.jar`.
 
 ## Pin and deploy to one device
 
 Set `ANDROID_SERIAL` only after explicitly confirming the target device. Every ADB command must retain the same serial because root, remount, push, and reboot change device state.
 
+This teaching block has no immutable backup, atomic replacement, group rollback, or boot-cycle verification. For a real-device Harness, implement and test a transactional deployment entry point; do not reuse direct push for mmap-backed ELF files. See the repository's [deployment contract](../../../../../skills/build-aosp-harness/references/deployment-transactions.md) when adapting this example.
+
 ```bash
-device_serial="${ANDROID_SERIAL:?Set ANDROID_SERIAL to the explicitly confirmed target serial}"
-adb -s "$device_serial" get-state
-adb -s "$device_serial" root
-adb -s "$device_serial" remount
+device_serial="${ANDROID_SERIAL-}"
+if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
+  printf 'Set ANDROID_SERIAL to the explicitly confirmed target serial\n' >&2
+  exit 2
+fi
+adb -s "$device_serial" get-state || exit $?
+adb -s "$device_serial" root || exit $?
+adb -s "$device_serial" remount || exit $?
 adb -s "$device_serial" push \
   out/target/product/vsoc_x86_64/system/framework/services.jar \
-  /system/framework/services.jar
-adb -s "$device_serial" reboot
+  /system/framework/services.jar || exit $?
+adb -s "$device_serial" reboot || exit $?
 ```
 
 A pushed jar can disagree with ART, dexpreopt, or boot-image caches. If recovery through `/data/dalvik-cache/` is not appropriate, rebuild and deploy a full image from a fresh AOSP environment:
@@ -81,13 +87,13 @@ if [[ "$full_build_rc" -ne 0 ]]; then
   tail -n 200 "$full_build_log" >&2
   exit "$full_build_rc"
 fi
-grep -Fq "#### build completed successfully ####" "$full_build_log" || exit 1
+grep -Fq "#### build completed successfully" "$full_build_log" || exit 1
 [[ -f "$image_artifact" ]] || exit 1
-'
-cvd fleet
+' || exit $?
+cvd fleet || exit $?
 cvd_group="${CVD_GROUP:?Set CVD_GROUP to the explicitly confirmed group from cvd fleet}"
-cvd --group_name="$cvd_group" stop
-cvd --group_name="$cvd_group" start
+cvd --group_name="$cvd_group" stop || exit $?
+cvd --group_name="$cvd_group" start || exit $?
 ```
 
 The group selector placement above is the local Cuttlefish `cvd [selectors] command` form. Never infer a group when multiple devices may exist.

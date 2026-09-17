@@ -10,8 +10,8 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$FIXTURE/features/dev-test"
-printf '%s\n' 'dev-test' > "$FIXTURE/CURRENT_FEATURE"
-printf '%s\n' '# feature: dev-test' > "$FIXTURE/features/dev-test/AGENTS.md"
+printf '%s\n' 'dev-test' >"$FIXTURE/CURRENT_FEATURE"
+printf '%s\n' '# feature: dev-test' >"$FIXTURE/features/dev-test/AGENTS.md"
 
 # The wrapper creates a relative root link for the selected feature.
 HARNESS_ROOT="$FIXTURE" "$ROOT/.codex/bin/codex-feature" --dry-run >/dev/null
@@ -20,7 +20,7 @@ test "$(readlink "$FIXTURE/AGENTS.md")" = 'features/dev-test/AGENTS.md'
 
 # A user's ordinary AGENTS.md is never replaced or rewritten.
 rm "$FIXTURE/AGENTS.md"
-printf '%s' 'protected' > "$FIXTURE/AGENTS.md"
+printf '%s' 'protected' >"$FIXTURE/AGENTS.md"
 cp "$FIXTURE/AGENTS.md" "$FIXTURE/AGENTS.md.expected"
 set +e
 collision_output="$(HARNESS_ROOT="$FIXTURE" "$ROOT/.codex/bin/codex-feature" --dry-run 2>&1)"
@@ -32,7 +32,7 @@ grep -Fq '普通文件' <<<"$collision_output"
 
 # A missing feature context reports the exact expected path and leaves no link.
 rm "$FIXTURE/AGENTS.md" "$FIXTURE/AGENTS.md.expected"
-printf '%s\n' 'missing-feature' > "$FIXTURE/CURRENT_FEATURE"
+printf '%s\n' 'missing-feature' >"$FIXTURE/CURRENT_FEATURE"
 set +e
 missing_feature_output="$(HARNESS_ROOT="$FIXTURE" "$ROOT/.codex/bin/codex-feature" --dry-run 2>&1)"
 missing_feature_rc=$?
@@ -48,7 +48,7 @@ mkdir -p "$BRANCH_ROOT/features/dev-test" "$BRANCH_ROOT/repos/one"
 printf '%s\n' \
   $'repos/one\tdev-test\tfirst repository' \
   $'repos/two\tdev-test\tsecond repository' \
-  > "$BRANCH_ROOT/features/dev-test/repos.tsv"
+  >"$BRANCH_ROOT/features/dev-test/repos.tsv"
 git -C "$BRANCH_ROOT/repos/one" init -q -b dev-test
 git -C "$BRANCH_ROOT/repos/one" -c user.name=test -c user.email=test@example.com \
   commit --allow-empty -qm init
@@ -80,9 +80,9 @@ grep -Fq 'DRIFT' <<<"$demo_output"
 # In a repo tree, branch validation runs before link selection and fails closed.
 rm -rf "$FIXTURE/.repo"
 mkdir "$FIXTURE/.repo"
-printf '%s\n' 'dev-test' > "$FIXTURE/CURRENT_FEATURE"
+printf '%s\n' 'dev-test' >"$FIXTURE/CURRENT_FEATURE"
 printf '%s\n' $'missing/repository\tdev-test\twrapper failure fixture' \
-  > "$FIXTURE/features/dev-test/repos.tsv"
+  >"$FIXTURE/features/dev-test/repos.tsv"
 ln -s "$ROOT/features/dev-sidebar/check-branch.sh" \
   "$FIXTURE/features/dev-test/check-branch.sh"
 set +e
@@ -133,7 +133,7 @@ test_invalid_current_features() {
     index=$((index + 1))
     case_root="$FIXTURE/invalid-feature-$index"
     mkdir -p "$case_root/features"
-    printf '%s' "$value" > "$case_root/CURRENT_FEATURE"
+    printf '%s' "$value" >"$case_root/CURRENT_FEATURE"
 
     case "$value" in
       '../escape') legacy_context="$case_root/escape/AGENTS.md" ;;
@@ -146,7 +146,7 @@ test_invalid_current_features() {
     esac
     if [[ -n "$legacy_context" ]]; then
       mkdir -p "$(dirname "$legacy_context")"
-      printf '%s\n' '# invalid feature must not select this file' > "$legacy_context"
+      printf '%s\n' '# invalid feature must not select this file' >"$legacy_context"
     fi
 
     set +e
@@ -164,7 +164,7 @@ test_invalid_active_features() {
 
   mkdir -p "$case_root/features" "$case_root/escape"
   printf '%s\n' $'repos/one\t../escape\tdescription' \
-    > "$case_root/escape/repos.tsv"
+    >"$case_root/escape/repos.tsv"
 
   for value in '../escape' $'dev-test\nsecond'; do
     set +e
@@ -183,8 +183,8 @@ test_nul_current_feature() {
 
   mkdir -p "$case_root/features/dev-testsuffix"
   printf '%s\n' '# invalid normalized context' \
-    > "$case_root/features/dev-testsuffix/AGENTS.md"
-  printf 'dev-test\0suffix\n' > "$case_root/CURRENT_FEATURE"
+    >"$case_root/features/dev-testsuffix/AGENTS.md"
+  printf 'dev-test\0suffix\n' >"$case_root/CURRENT_FEATURE"
 
   set +e
   output="$(HARNESS_ROOT="$case_root" "$ROOT/.codex/bin/codex-feature" --dry-run 2>&1)"
@@ -199,9 +199,9 @@ test_anchor_feature_detection() {
   local case_root="$FIXTURE/anchor-feature"
 
   mkdir -p "$case_root/features/dev-anchor" "$case_root/features/dev-fallback"
-  printf '%s\n' '# anchor context' > "$case_root/features/dev-anchor/AGENTS.md"
-  printf '%s\n' '# fallback context' > "$case_root/features/dev-fallback/AGENTS.md"
-  printf '%s\n' 'dev-fallback' > "$case_root/CURRENT_FEATURE"
+  printf '%s\n' '# anchor context' >"$case_root/features/dev-anchor/AGENTS.md"
+  printf '%s\n' '# fallback context' >"$case_root/features/dev-fallback/AGENTS.md"
+  printf '%s\n' 'dev-fallback' >"$case_root/CURRENT_FEATURE"
   init_repo "$case_root/frameworks/base" dev-anchor || return 1
 
   HARNESS_ROOT="$case_root" "$ROOT/.codex/bin/codex-feature" --dry-run >/dev/null || return 1
@@ -213,9 +213,9 @@ test_invalid_anchor_feature() {
   local output rc
 
   mkdir -p "$case_root/features/feature/dev-anchor" "$case_root/features/dev-fallback"
-  printf '%s\n' '# invalid nested context' > "$case_root/features/feature/dev-anchor/AGENTS.md"
-  printf '%s\n' '# fallback context' > "$case_root/features/dev-fallback/AGENTS.md"
-  printf '%s\n' 'dev-fallback' > "$case_root/CURRENT_FEATURE"
+  printf '%s\n' '# invalid nested context' >"$case_root/features/feature/dev-anchor/AGENTS.md"
+  printf '%s\n' '# fallback context' >"$case_root/features/dev-fallback/AGENTS.md"
+  printf '%s\n' 'dev-fallback' >"$case_root/CURRENT_FEATURE"
   init_repo "$case_root/frameworks/base" feature/dev-anchor || return 1
 
   set +e
@@ -231,8 +231,8 @@ test_invalid_anchor_metadata_is_skipped() {
   local case_root="$FIXTURE/invalid-anchor-metadata"
 
   mkdir -p "$case_root/frameworks/base/.git" "$case_root/features/dev-native"
-  printf '%s\n' '# native anchor context' > "$case_root/features/dev-native/AGENTS.md"
-  printf '%s\n' 'dev-fallback' > "$case_root/CURRENT_FEATURE"
+  printf '%s\n' '# native anchor context' >"$case_root/features/dev-native/AGENTS.md"
+  printf '%s\n' 'dev-fallback' >"$case_root/CURRENT_FEATURE"
   init_repo "$case_root/frameworks/native" dev-native || return 1
 
   HARNESS_ROOT="$case_root" "$ROOT/.codex/bin/codex-feature" --dry-run >/dev/null || return 1
@@ -252,7 +252,7 @@ test_malformed_manifests() {
     $'repos/one\tdev-test' \
     $'repos/one\tdev-test\t' \
     $'repos/one\tdev-test\tdescription\textra'; do
-    printf '%s\n' "$row" > "$case_root/features/dev-test/repos.tsv"
+    printf '%s\n' "$row" >"$case_root/features/dev-test/repos.tsv"
     set +e
     output="$(HARNESS_ROOT="$case_root" FEATURE_NAME=dev-test \
       "$ROOT/features/dev-sidebar/check-branch.sh" 2>&1)"
@@ -270,7 +270,7 @@ test_mismatched_manifest_feature() {
   mkdir -p "$case_root/features/dev-test"
   init_repo "$case_root/repos/one" dev-test || return 1
   printf '%s\n' $'repos/one\tother-feature\tdescription' \
-    > "$case_root/features/dev-test/repos.tsv"
+    >"$case_root/features/dev-test/repos.tsv"
 
   set +e
   output="$(HARNESS_ROOT="$case_root" FEATURE_NAME=dev-test \
@@ -288,7 +288,7 @@ test_nul_manifest_feature() {
   mkdir -p "$case_root/features/dev-test"
   init_repo "$case_root/repos/one" dev-test || return 1
   printf 'repos/one\tdev-\0test\tdescription\n' \
-    > "$case_root/features/dev-test/repos.tsv"
+    >"$case_root/features/dev-test/repos.tsv"
 
   set +e
   output="$(HARNESS_ROOT="$case_root" FEATURE_NAME=dev-test \
@@ -306,7 +306,7 @@ test_actual_branch_drift() {
   mkdir -p "$case_root/features/dev-test"
   init_repo "$case_root/repos/one" dev-other || return 1
   printf '%s\n' $'repos/one\tdev-test\tdescription' \
-    > "$case_root/features/dev-test/repos.tsv"
+    >"$case_root/features/dev-test/repos.tsv"
 
   set +e
   output="$(HARNESS_ROOT="$case_root" FEATURE_NAME=dev-test \
@@ -327,7 +327,7 @@ test_detached_and_invalid_repositories() {
   init_repo "$detached_root/repos/one" dev-test || return 1
   git -C "$detached_root/repos/one" checkout -q --detach || return 1
   printf '%s\n' $'repos/one\tdev-test\tdescription' \
-    > "$detached_root/features/dev-test/repos.tsv"
+    >"$detached_root/features/dev-test/repos.tsv"
   set +e
   output="$(HARNESS_ROOT="$detached_root" FEATURE_NAME=dev-test \
     "$ROOT/features/dev-sidebar/check-branch.sh" 2>&1)"
@@ -338,7 +338,7 @@ test_detached_and_invalid_repositories() {
 
   mkdir -p "$invalid_root/features/dev-test" "$invalid_root/repos/bad/.git"
   printf '%s\n' $'repos/bad\tdev-test\tdescription' \
-    > "$invalid_root/features/dev-test/repos.tsv"
+    >"$invalid_root/features/dev-test/repos.tsv"
   set +e
   output="$(HARNESS_ROOT="$invalid_root" FEATURE_NAME=dev-test \
     "$ROOT/features/dev-sidebar/check-branch.sh" 2>&1)"
@@ -349,9 +349,9 @@ test_detached_and_invalid_repositories() {
 
   mkdir -p "$invalid_head_root/features/dev-test"
   init_repo "$invalid_head_root/repos/bad-head" dev-test || return 1
-  printf '%040d\n' 0 > "$invalid_head_root/repos/bad-head/.git/HEAD"
+  printf '%040d\n' 0 >"$invalid_head_root/repos/bad-head/.git/HEAD"
   printf '%s\n' $'repos/bad-head\tdev-test\tdescription' \
-    > "$invalid_head_root/features/dev-test/repos.tsv"
+    >"$invalid_head_root/features/dev-test/repos.tsv"
   set +e
   output="$(HARNESS_ROOT="$invalid_head_root" FEATURE_NAME=dev-test \
     "$ROOT/features/dev-sidebar/check-branch.sh" 2>&1)"
@@ -369,14 +369,14 @@ test_stale_and_broken_links() {
     case_root="$FIXTURE/$kind-link"
     fake_bin="$case_root/fake-bin"
     mkdir -p "$case_root/features/dev-test" "$fake_bin"
-    printf '%s\n' 'dev-test' > "$case_root/CURRENT_FEATURE"
-    printf '%s\n' '# selected context' > "$case_root/features/dev-test/AGENTS.md"
+    printf '%s\n' 'dev-test' >"$case_root/CURRENT_FEATURE"
+    printf '%s\n' '# selected context' >"$case_root/features/dev-test/AGENTS.md"
     if [[ "$kind" == stale ]]; then
       mkdir -p "$case_root/features/dev-old"
-      printf '%s\n' '# old context' > "$case_root/features/dev-old/AGENTS.md"
+      printf '%s\n' '# old context' >"$case_root/features/dev-old/AGENTS.md"
     fi
     ln -s 'features/dev-old/AGENTS.md' "$case_root/AGENTS.md"
-    printf '%s\n' '#!/usr/bin/env bash' 'exit 97' > "$fake_bin/mv"
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 97' >"$fake_bin/mv"
     chmod +x "$fake_bin/mv"
 
     PATH="$fake_bin:$PATH" HARNESS_ROOT="$case_root" \
@@ -390,11 +390,11 @@ test_old_link_survives_branch_failure() {
   local output rc
 
   mkdir -p "$case_root/.repo" "$case_root/features/dev-test" "$case_root/features/dev-old"
-  printf '%s\n' 'dev-test' > "$case_root/CURRENT_FEATURE"
-  printf '%s\n' '# selected context' > "$case_root/features/dev-test/AGENTS.md"
-  printf '%s\n' '# old context' > "$case_root/features/dev-old/AGENTS.md"
+  printf '%s\n' 'dev-test' >"$case_root/CURRENT_FEATURE"
+  printf '%s\n' '# selected context' >"$case_root/features/dev-test/AGENTS.md"
+  printf '%s\n' '# old context' >"$case_root/features/dev-old/AGENTS.md"
   printf '%s\n' $'missing/repository\tdev-test\tdescription' \
-    > "$case_root/features/dev-test/repos.tsv"
+    >"$case_root/features/dev-test/repos.tsv"
   ln -s "$ROOT/features/dev-sidebar/check-branch.sh" \
     "$case_root/features/dev-test/check-branch.sh"
   ln -s 'features/dev-old/AGENTS.md' "$case_root/AGENTS.md"
@@ -412,9 +412,9 @@ test_repo_marker_file_is_ignored() {
   local case_root="$FIXTURE/repo-marker-file"
 
   mkdir -p "$case_root/features/dev-test"
-  printf '%s\n' 'dev-test' > "$case_root/CURRENT_FEATURE"
-  printf '%s\n' '# selected context' > "$case_root/features/dev-test/AGENTS.md"
-  printf '%s\n' 'not a repo directory' > "$case_root/.repo"
+  printf '%s\n' 'dev-test' >"$case_root/CURRENT_FEATURE"
+  printf '%s\n' '# selected context' >"$case_root/features/dev-test/AGENTS.md"
+  printf '%s\n' 'not a repo directory' >"$case_root/.repo"
 
   HARNESS_ROOT="$case_root" "$ROOT/.codex/bin/codex-feature" --dry-run >/dev/null || return 1
   [[ "$(readlink "$case_root/AGENTS.md")" == 'features/dev-test/AGENTS.md' ]]
@@ -426,19 +426,19 @@ test_launch_cwd_and_arguments() {
   local capture="$case_root/capture"
 
   mkdir -p "$case_root/features/dev-test" "$fake_bin" "$capture"
-  printf '%s\n' 'dev-test' > "$case_root/CURRENT_FEATURE"
-  printf '%s\n' '# selected context' > "$case_root/features/dev-test/AGENTS.md"
+  printf '%s\n' 'dev-test' >"$case_root/CURRENT_FEATURE"
+  printf '%s\n' '# selected context' >"$case_root/features/dev-test/AGENTS.md"
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'printf "%s\n" "$PWD" > "$CODEX_CAPTURE/cwd"' \
     'printf "%s\n" "$@" > "$CODEX_CAPTURE/args"' \
-    > "$fake_bin/codex"
+    >"$fake_bin/codex"
   chmod +x "$fake_bin/codex"
 
   CODEX_CAPTURE="$capture" PATH="$fake_bin:$PATH" HARNESS_ROOT="$case_root" \
     "$ROOT/.codex/bin/codex-feature" alpha 'two words' --flag >/dev/null || return 1
   [[ "$(cat "$capture/cwd")" == "$case_root" ]] || return 1
-  printf '%s\n' alpha 'two words' --flag > "$capture/expected-args"
+  printf '%s\n' alpha 'two words' --flag >"$capture/expected-args"
   cmp -s "$capture/expected-args" "$capture/args"
 }
 
@@ -496,37 +496,37 @@ test_session_snapshots_and_branch_drift() {
     '{"session_id":"session-b","cwd":"%s","hook_event_name":"UserPromptSubmit"}' \
     "$FIXTURE")"
 
-  printf '%s\n' 'dev-test' > "$FIXTURE/CURRENT_FEATURE"
+  printf '%s\n' 'dev-test' >"$FIXTURE/CURRENT_FEATURE"
   mkdir -p "$state_dir"
   chmod 755 "$state_dir"
-  session_start_output="$(printf '%s\n' "$session_a_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$session_start")" || return 1
+  session_start_output="$(printf '%s\n' "$session_a_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$session_start")" || return 1
   [[ -z "$session_start_output" ]] || return 1
 
   [[ "$(cat "$state_dir/session-a.feature")" == 'dev-test' ]] || return 1
   [[ "$(stat -c '%a' "$state_dir")" == '700' ]] || return 1
   [[ "$(stat -c '%a' "$state_dir/session-a.feature")" == '600' ]] || return 1
 
-  drift_output="$(printf '%s\n' "$session_a_drift_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$drift_check")" || return 1
+  drift_output="$(printf '%s\n' "$session_a_drift_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$drift_check")" || return 1
   [[ -z "$drift_output" ]] || return 1
 
   mkdir -p "$FIXTURE/features/dev-next"
-  printf '%s\n' '# feature: dev-next' > "$FIXTURE/features/dev-next/AGENTS.md"
-  printf '%s\n' 'dev-next' > "$FIXTURE/CURRENT_FEATURE"
+  printf '%s\n' '# feature: dev-next' >"$FIXTURE/features/dev-next/AGENTS.md"
+  printf '%s\n' 'dev-next' >"$FIXTURE/CURRENT_FEATURE"
 
-  session_start_output="$(printf '%s\n' "$session_b_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$session_start")" || return 1
+  session_start_output="$(printf '%s\n' "$session_b_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$session_start")" || return 1
   [[ -z "$session_start_output" ]] || return 1
   [[ "$(cat "$state_dir/session-b.feature")" == 'dev-next' ]] || return 1
   [[ "$(stat -c '%a' "$state_dir/session-b.feature")" == '600' ]] || return 1
 
-  drift_output="$(printf '%s\n' "$session_a_drift_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$drift_check")" || return 1
+  drift_output="$(printf '%s\n' "$session_a_drift_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$drift_check")" || return 1
 
   python3 - "$drift_output" <<'PY' || return 1
 import json
@@ -546,9 +546,9 @@ assert data == {
 }
 PY
 
-  drift_output="$(printf '%s\n' "$session_b_drift_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$drift_check")" || return 1
+  drift_output="$(printf '%s\n' "$session_b_drift_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$drift_check")" || return 1
   [[ -z "$drift_output" ]] || return 1
   [[ "$(cat "$state_dir/session-a.feature")" == 'dev-test' ]] || return 1
   [[ "$(cat "$state_dir/session-b.feature")" == 'dev-next' ]]
@@ -608,18 +608,18 @@ test_invalid_hook_inputs_are_rejected() {
   before_files="$(find "$state_dir" -maxdepth 1 -type f -printf '%f\n' | sort)"
   for payload in "${invalid_inputs[@]}"; do
     set +e
-    output="$(printf '%s\n' "$payload" | \
-      HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-      "$session_start" 2>&1)"
+    output="$(printf '%s\n' "$payload" \
+      | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+        "$session_start" 2>&1)"
     rc=$?
     set -e
     [[ "$rc" -ne 0 ]] || return 1
     [[ "$output" == 'error: invalid hook input' ]] || return 1
 
     set +e
-    output="$(printf '%s\n' "$payload" | \
-      HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-      "$drift_check" 2>/dev/null)"
+    output="$(printf '%s\n' "$payload" \
+      | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+        "$drift_check" 2>/dev/null)"
     rc=$?
     set -e
     assert_hook_stop "$rc" "$output" 'invalid hook input' || return 1
@@ -642,29 +642,29 @@ test_session_id_length_boundaries() {
   accepted_input="$(printf '{"session_id":"%s"}' "$accepted_id")"
   rejected_input="$(printf '{"session_id":"%s"}' "$rejected_id")"
 
-  output="$(printf '%s\n' "$accepted_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$session_start")" || return 1
+  output="$(printf '%s\n' "$accepted_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$session_start")" || return 1
   [[ -z "$output" ]] || return 1
   [[ "$(cat "$state_dir/$accepted_id.feature")" == 'dev-next' ]] || return 1
-  output="$(printf '%s\n' "$accepted_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$drift_check")" || return 1
+  output="$(printf '%s\n' "$accepted_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$drift_check")" || return 1
   [[ -z "$output" ]] || return 1
 
   set +e
-  output="$(printf '%s\n' "$rejected_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$session_start" 2>&1)"
+  output="$(printf '%s\n' "$rejected_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$session_start" 2>&1)"
   rc=$?
   set -e
   [[ "$rc" -ne 0 ]] || return 1
   [[ "$output" == 'error: invalid hook input' ]] || return 1
 
   set +e
-  output="$(printf '%s\n' "$rejected_input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$drift_check" 2>/dev/null)"
+  output="$(printf '%s\n' "$rejected_input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$drift_check" 2>/dev/null)"
   rc=$?
   set -e
   assert_hook_stop "$rc" "$output" 'invalid hook input' || return 1
@@ -682,9 +682,9 @@ test_state_directory_creation_and_default_path() {
 
   input='{"session_id":"state-creation"}'
   [[ ! -e "$new_state" ]] || return 1
-  output="$(printf '%s\n' "$input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$new_state" \
-    "$session_start")" || return 1
+  output="$(printf '%s\n' "$input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$new_state" \
+      "$session_start")" || return 1
   [[ -z "$output" ]] || return 1
   [[ "$(stat -c '%a' "$new_state")" == '700' ]] || return 1
   [[ "$(cat "$new_state/state-creation.feature")" == 'dev-next' ]] || return 1
@@ -699,15 +699,15 @@ test_state_directory_creation_and_default_path() {
 
   mkdir -p "$relative_root"
   input='{"session_id":"relative-state"}'
-  output="$(cd "$relative_root" && printf '%s\n' "$input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR='state' \
-    "$session_start")" || return 1
+  output="$(cd "$relative_root" && printf '%s\n' "$input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR='state' \
+      "$session_start")" || return 1
   [[ -z "$output" ]] || return 1
   [[ "$(stat -c '%a' "$relative_root/state")" == '700' ]] || return 1
   [[ "$(cat "$relative_root/state/relative-state.feature")" == 'dev-next' ]] || return 1
-  output="$(cd "$relative_root" && printf '%s\n' "$input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR='state' \
-    "$drift_check")" || return 1
+  output="$(cd "$relative_root" && printf '%s\n' "$input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR='state' \
+      "$drift_check")" || return 1
   [[ -z "$output" ]]
 }
 
@@ -719,7 +719,7 @@ test_feature_detection_errors_are_concise() {
   local input case_root expected state_dir output rc
 
   mkdir -p "$missing_root/features" "$context_root/features/dev-test"
-  printf '%s\n' 'dev-test' > "$context_root/CURRENT_FEATURE"
+  printf '%s\n' 'dev-test' >"$context_root/CURRENT_FEATURE"
   input='{"session_id":"feature-error"}'
 
   for case_root in "$missing_root" "$context_root"; do
@@ -730,9 +730,9 @@ test_feature_detection_errors_are_concise() {
     fi
     state_dir="$case_root/state"
     set +e
-    output="$(printf '%s\n' "$input" | \
-      HARNESS_ROOT="$case_root" CODEX_HARNESS_STATE_DIR="$state_dir" \
-      "$session_start" 2>&1)"
+    output="$(printf '%s\n' "$input" \
+      | HARNESS_ROOT="$case_root" CODEX_HARNESS_STATE_DIR="$state_dir" \
+        "$session_start" 2>&1)"
     rc=$?
     set -e
     [[ "$rc" -ne 0 ]] || return 1
@@ -740,9 +740,9 @@ test_feature_detection_errors_are_concise() {
     [[ ! -e "$state_dir" ]] || return 1
 
     set +e
-    output="$(printf '%s\n' "$input" | \
-      HARNESS_ROOT="$case_root" CODEX_HARNESS_STATE_DIR="$state_dir" \
-      "$drift_check" 2>/dev/null)"
+    output="$(printf '%s\n' "$input" \
+      | HARNESS_ROOT="$case_root" CODEX_HARNESS_STATE_DIR="$state_dir" \
+        "$drift_check" 2>/dev/null)"
     rc=$?
     set -e
     assert_hook_stop "$rc" "$output" 'feature context' || return 1
@@ -764,25 +764,25 @@ test_python_encoding_cannot_redirect_hook_state() {
     "$FIXTURE/features/dev-encoding"
   ln -s "$redirect_target" "$bom_state"
   printf '%s\n' '# feature: dev-encoding' \
-    > "$FIXTURE/features/dev-encoding/AGENTS.md"
+    >"$FIXTURE/features/dev-encoding/AGENTS.md"
   input='{"session_id":"encoding-session"}'
 
-  output="$(cd "$encoding_root" && printf '%s\n' "$input" | \
-    PYTHONIOENCODING='utf-8-sig' HARNESS_ROOT="$FIXTURE" \
-    CODEX_HARNESS_STATE_DIR='validated-state' "$session_start")" || return 1
+  output="$(cd "$encoding_root" && printf '%s\n' "$input" \
+    | PYTHONIOENCODING='utf-8-sig' HARNESS_ROOT="$FIXTURE" \
+      CODEX_HARNESS_STATE_DIR='validated-state' "$session_start")" || return 1
   [[ -z "$output" ]] || return 1
   [[ "$(cat "$encoding_root/validated-state/encoding-session.feature")" == 'dev-next' ]] || return 1
   [[ ! -e "$redirect_target/encoding-session.feature" ]] || return 1
 
-  output="$(cd "$encoding_root" && printf '%s\n' "$input" | \
-    PYTHONIOENCODING='utf-8-sig' HARNESS_ROOT="$FIXTURE" \
-    CODEX_HARNESS_STATE_DIR='validated-state' "$drift_check")" || return 1
+  output="$(cd "$encoding_root" && printf '%s\n' "$input" \
+    | PYTHONIOENCODING='utf-8-sig' HARNESS_ROOT="$FIXTURE" \
+      CODEX_HARNESS_STATE_DIR='validated-state' "$drift_check")" || return 1
   [[ -z "$output" ]] || return 1
 
-  printf '%s\n' 'dev-encoding' > "$FIXTURE/CURRENT_FEATURE"
-  output="$(cd "$encoding_root" && printf '%s\n' "$input" | \
-    PYTHONIOENCODING='utf-8-sig' HARNESS_ROOT="$FIXTURE" \
-    CODEX_HARNESS_STATE_DIR='validated-state' "$drift_check")" || return 1
+  printf '%s\n' 'dev-encoding' >"$FIXTURE/CURRENT_FEATURE"
+  output="$(cd "$encoding_root" && printf '%s\n' "$input" \
+    | PYTHONIOENCODING='utf-8-sig' HARNESS_ROOT="$FIXTURE" \
+      CODEX_HARNESS_STATE_DIR='validated-state' "$drift_check")" || return 1
   python3 - "$output" <<'PY' || return 1
 import json
 import sys
@@ -800,7 +800,7 @@ assert data == {
     ),
 }
 PY
-  printf '%s\n' 'dev-next' > "$FIXTURE/CURRENT_FEATURE"
+  printf '%s\n' 'dev-next' >"$FIXTURE/CURRENT_FEATURE"
 }
 
 test_unsafe_state_paths_are_rejected() {
@@ -819,7 +819,7 @@ test_unsafe_state_paths_are_rejected() {
   input="$(printf \
     '{"session_id":"state-safety","cwd":"%s","hook_event_name":"SessionStart"}' \
     "$FIXTURE")"
-  printf '%s\n' 'not a directory' > "$state_file"
+  printf '%s\n' 'not a directory' >"$state_file"
   mkdir -p "$state_target" "$parent_target" "$newline_target"
   ln -s "$state_target" "$state_link"
   ln -s "$parent_target" "$parent_link"
@@ -839,18 +839,18 @@ test_unsafe_state_paths_are_rejected() {
 
   for state_path in "${unsafe_paths[@]}"; do
     set +e
-    output="$(printf '%s\n' "$input" | \
-      HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_path" \
-      "$session_start" 2>&1)"
+    output="$(printf '%s\n' "$input" \
+      | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_path" \
+        "$session_start" 2>&1)"
     rc=$?
     set -e
     [[ "$rc" -ne 0 ]] || return 1
     [[ "$output" == 'error: unsafe harness state directory' ]] || return 1
 
     set +e
-    output="$(printf '%s\n' "$input" | \
-      HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_path" \
-      "$drift_check" 2>/dev/null)"
+    output="$(printf '%s\n' "$input" \
+      | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_path" \
+        "$drift_check" 2>/dev/null)"
     rc=$?
     set -e
     assert_hook_stop "$rc" "$output" 'session state' || return 1
@@ -879,17 +879,17 @@ test_snapshot_integrity_errors_stop_the_turn() {
   ln -s 'session-a.feature' "$state_dir/unsafe-snapshot.feature"
   mkdir "$state_dir/nonregular-snapshot.feature"
   printf '%s\n' 'not a valid feature snapshot' \
-    > "$state_dir/invalid-snapshot.feature"
-  printf '%s\n' 'dev-next' > "$state_dir/unreadable-snapshot.feature"
+    >"$state_dir/invalid-snapshot.feature"
+  printf '%s\n' 'dev-next' >"$state_dir/unreadable-snapshot.feature"
   chmod 000 "$state_dir/unreadable-snapshot.feature"
   [[ ! -r "$state_dir/unreadable-snapshot.feature" ]] || return 1
 
   for session_id in "${session_ids[@]}"; do
     input="$(printf '{"session_id":"%s"}' "$session_id")"
     set +e
-    output="$(printf '%s\n' "$input" | \
-      HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-      "$drift_check" 2>/dev/null)"
+    output="$(printf '%s\n' "$input" \
+      | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+        "$drift_check" 2>/dev/null)"
     rc=$?
     set -e
     assert_hook_stop "$rc" "$output" 'snapshot' || return 1
@@ -906,9 +906,9 @@ test_missing_session_snapshot_fails_closed() {
     '{"session_id":"session-missing","cwd":"%s","hook_event_name":"UserPromptSubmit"}' \
     "$FIXTURE")"
   [[ ! -e "$state_dir/session-missing.feature" ]] || return 1
-  output="$(printf '%s\n' "$input" | \
-    HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
-    "$drift_check")" || return 1
+  output="$(printf '%s\n' "$input" \
+    | HARNESS_ROOT="$FIXTURE" CODEX_HARNESS_STATE_DIR="$state_dir" \
+      "$drift_check")" || return 1
 
   python3 - "$output" <<'PY'
 import json
@@ -993,7 +993,7 @@ test_process_skill_artifacts() {
     return 1
   fi
   if grep -Eiq 'automatic(ally)?[[:space:]-]+activat|auto-activat|自动激活' \
-      "$services" "$sepolicy"; then
+    "$services" "$sepolicy"; then
     return 1
   fi
 
@@ -1012,10 +1012,10 @@ test_process_skill_artifacts() {
     'wait "$build_pid"' \
     'build_rc=$?' \
     '[[ "$build_rc" -ne 0 ]]' \
-    '#### build completed successfully ####' \
+    '#### build completed successfully' \
     'out/target/product/vsoc_x86_64/system/framework/services.jar' \
     '[[ -f "$artifact" ]]' \
-    'device_serial="${ANDROID_SERIAL:?Set ANDROID_SERIAL to the explicitly confirmed target serial}"' \
+    'device_serial="${ANDROID_SERIAL-}"' \
     'adb -s "$device_serial" get-state' \
     'adb -s "$device_serial" root' \
     'adb -s "$device_serial" remount' \
@@ -1032,7 +1032,7 @@ test_process_skill_artifacts() {
     'wait "$full_build_pid"' \
     'full_build_rc=$?' \
     '[[ "$full_build_rc" -ne 0 ]]' \
-    'grep -Fq "#### build completed successfully ####" "$full_build_log"' \
+    'grep -Fq "#### build completed successfully" "$full_build_log"' \
     'image_artifact="out/target/product/vsoc_x86_64/system.img"' \
     '[[ -f "$image_artifact" ]]' \
     'cvd fleet' \
@@ -1059,7 +1059,7 @@ test_process_skill_artifacts() {
     'wait "$build_pid"' \
     'build_rc=$?' \
     '[[ "$build_rc" -ne 0 ]]' \
-    '#### build completed successfully ####' \
+    '#### build completed successfully' \
     'out/target/product/vsoc_x86_64/system/etc/selinux/plat_sepolicy.cil' \
     '[[ -f "$artifact" ]]' \
     'service_contexts' \
@@ -1079,7 +1079,7 @@ test_process_skill_artifacts() {
     'wait "$full_build_pid"' \
     'full_build_rc=$?' \
     '[[ "$full_build_rc" -ne 0 ]]' \
-    'grep -Fq "#### build completed successfully ####" "$full_build_log"' \
+    'grep -Fq "#### build completed successfully" "$full_build_log"' \
     'image_artifact="out/target/product/vsoc_x86_64/system.img"' \
     '[[ -f "$image_artifact" ]]' \
     'cvd fleet' \
@@ -1401,8 +1401,8 @@ test_sidebar_verifier_real_mode_pins_adb() {
   local output rc
 
   adb() {
-    printf '%q ' adb "$@" >> "$ADB_LOG"
-    printf '\n' >> "$ADB_LOG"
+    printf '%q ' adb "$@" >>"$ADB_LOG"
+    printf '\n' >>"$ADB_LOG"
     [[ "$1" == '-s' && "$2" == 'demo-serial' ]] || return 91
     shift 2
     case "$*" in
@@ -1428,7 +1428,7 @@ test_sidebar_verifier_real_mode_pins_adb() {
 
   [[ "$rc" -eq 0 ]] || return 1
   [[ "$(tail -n 1 <<<"$output")" == 'RESULT PASS' ]] || return 1
-  [[ "$(wc -l < "$adb_log")" -eq 5 ]] || return 1
+  [[ "$(wc -l <"$adb_log")" -eq 5 ]] || return 1
   [[ "$(grep -c '^adb -s demo-serial ' "$adb_log")" -eq 5 ]] || return 1
   grep -Fxq 'adb -s demo-serial logcat -b crash -d -v epoch\,nsec -T 200.000000000 ' \
     "$adb_log"
@@ -1439,8 +1439,8 @@ test_sidebar_verifier_real_default_baseline_and_crlf() {
   local output rc
 
   adb() {
-    printf '%q ' adb "$@" >> "$ADB_LOG"
-    printf '\n' >> "$ADB_LOG"
+    printf '%q ' adb "$@" >>"$ADB_LOG"
+    printf '\n' >>"$ADB_LOG"
     [[ "$1" == '-s' && "$2" == 'demo-serial' ]] || return 91
     shift 2
     case "$*" in
@@ -1472,7 +1472,7 @@ test_sidebar_verifier_real_default_baseline_and_crlf() {
 
   [[ "$rc" -eq 0 ]] || return 1
   [[ "$(tail -n 1 <<<"$output")" == 'RESULT PASS' ]] || return 1
-  [[ "$(wc -l < "$adb_log")" -eq 6 ]] || return 1
+  [[ "$(wc -l <"$adb_log")" -eq 6 ]] || return 1
   [[ "$(grep -c '^adb -s demo-serial ' "$adb_log")" -eq 6 ]] || return 1
   grep -Fxq 'adb -s demo-serial shell cat /proc/stat ' "$adb_log" || return 1
   grep -Fxq \
@@ -1493,8 +1493,8 @@ test_sidebar_verifier_real_query_failures() {
 
   adb() {
     local key
-    printf '%q ' adb "$@" >> "$ADB_LOG"
-    printf '\n' >> "$ADB_LOG"
+    printf '%q ' adb "$@" >>"$ADB_LOG"
+    printf '\n' >>"$ADB_LOG"
     [[ "$1" == '-s' && "$2" == 'demo-serial' ]] || return 91
     shift 2
     case "$*" in
@@ -1531,8 +1531,7 @@ test_sidebar_verifier_real_query_failures() {
     grep -Fxq "$expected" <<<"$output" || return 1
     [[ "$(grep -c '^FAIL  ' <<<"$output")" -eq 1 ]] || return 1
     [[ "$(tail -n 1 <<<"$output")" == 'RESULT FAIL' ]] || return 1
-    [[ "$(grep -c '^adb -s demo-serial ' "$adb_log")" \
-      -eq "$(wc -l < "$adb_log")" ]] || return 1
+    [[ "$(grep -c '^adb -s demo-serial ' "$adb_log")" -eq "$(wc -l <"$adb_log")" ]] || return 1
   done
   unset -f adb
 }
@@ -1542,7 +1541,7 @@ test_sidebar_verifier_requires_serial_before_adb() {
   local output rc unsafe_output unsafe_rc
 
   adb() {
-    printf '%s\n' called >> "$ADB_LOG"
+    printf '%s\n' called >>"$ADB_LOG"
     return 90
   }
   export -f adb
@@ -1686,7 +1685,7 @@ write_forbidden_command_stubs() {
       '#!/usr/bin/env bash' \
       'printf '\''%s\n'\'' "${0##*/}" >> "$DEMO_FORBIDDEN_CALLS"' \
       'exit 97' \
-      > "$bin_dir/$command_name"
+      >"$bin_dir/$command_name"
     chmod +x "$bin_dir/$command_name"
   done
 }
@@ -1711,11 +1710,11 @@ test_integrated_demo_contract_and_success() {
   grep -Fq './features/dev-sidebar/verify-sidebar.sh --demo' "$demo" || return 1
   grep -Fq './tests/test-harness.sh' "$demo" || return 1
   if grep -En '(^|[;&|()[:space:]])(codex|adb|cvd|m|make|ninja|soong_ui[.]bash)([[:space:]]|$)' \
-      "$demo"; then
+    "$demo"; then
     return 1
   fi
   if grep -En '(^|[;&|()[:space:]])(source[[:space:]]+)?build/envsetup[.]sh([[:space:]]|$)|(^|[;&|()[:space:]])lunch([[:space:]]|$)' \
-      "$demo"; then
+    "$demo"; then
     return 1
   fi
 
@@ -1726,11 +1725,11 @@ test_integrated_demo_contract_and_success() {
   mkdir -p "$demo_tmp_parent"
 
   set +e
-  output="$(cd "$ROOT" && \
-    PATH="$command_bin:$PATH" \
-    DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
-    TMPDIR="$demo_tmp_parent" \
-    SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
+  output="$(cd "$ROOT" \
+    && PATH="$command_bin:$PATH" \
+      DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
+      TMPDIR="$demo_tmp_parent" \
+      SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
   rc=$?
   set -e
 
@@ -1746,8 +1745,7 @@ test_integrated_demo_contract_and_success() {
   [[ "$(tail -n 1 <<<"$output")" == 'Codex 三层 Harness 演示完毕' ]] || return 1
   [[ ! -e "$forbidden_calls" ]] || return 1
   [[ -z "$(find "$demo_tmp_parent" -mindepth 1 -maxdepth 1 -print -quit)" ]] || return 1
-  [[ "$(sha256sum "$ROOT/CURRENT_FEATURE" | awk '{print $1}')" == \
-    "$original_feature_hash" ]] || return 1
+  [[ "$(sha256sum "$ROOT/CURRENT_FEATURE" | awk '{print $1}')" == "$original_feature_hash" ]] || return 1
   [[ -L "$ROOT/AGENTS.md" ]] || return 1
   [[ "$(readlink "$ROOT/AGENTS.md")" == "$original_agents_target" ]]
 }
@@ -1783,16 +1781,16 @@ test_integrated_demo_restores_state_after_failure() {
     '  fi' \
     'fi' \
     'exec "$DEMO_REAL_PYTHON" "$@"' \
-    > "$fake_bin/python3"
+    >"$fake_bin/python3"
   chmod +x "$fake_bin/python3"
 
   set +e
-  output="$(cd "$case_root" && \
-    PATH="$fake_bin:$PATH" \
-    DEMO_PYTHON_COUNT="$python_count" \
-    DEMO_REAL_PYTHON="$real_python" \
-    TMPDIR="$demo_tmp_parent" \
-    SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
+  output="$(cd "$case_root" \
+    && PATH="$fake_bin:$PATH" \
+      DEMO_PYTHON_COUNT="$python_count" \
+      DEMO_REAL_PYTHON="$real_python" \
+      TMPDIR="$demo_tmp_parent" \
+      SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
   rc=$?
   set -e
 
@@ -1800,8 +1798,7 @@ test_integrated_demo_restores_state_after_failure() {
   grep -Fq 'error: 漂移 hook 未返回预期的结构化阻断块' <<<"$output" || return 1
   ! grep -Fq 'error: invalid hook input' <<<"$output" || return 1
   [[ "$(cat "$python_count")" -eq 3 ]] || return 1
-  [[ "$(sha256sum "$case_root/CURRENT_FEATURE" | awk '{print $1}')" == \
-    "$original_feature_hash" ]] || return 1
+  [[ "$(sha256sum "$case_root/CURRENT_FEATURE" | awk '{print $1}')" == "$original_feature_hash" ]] || return 1
   [[ -L "$case_root/AGENTS.md" ]] || return 1
   [[ "$(readlink "$case_root/AGENTS.md")" == "$original_agents_target" ]] || return 1
   [[ -z "$(find "$demo_tmp_parent" -mindepth 1 -maxdepth 1 -print -quit)" ]]
@@ -1822,11 +1819,11 @@ test_integrated_demo_restores_alternate_link_and_protects_regular_file() {
   mkdir -p "$demo_tmp_parent"
 
   set +e
-  output="$(cd "$case_root" && \
-    PATH="$command_bin:$PATH" \
-    DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
-    TMPDIR="$demo_tmp_parent" \
-    SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
+  output="$(cd "$case_root" \
+    && PATH="$command_bin:$PATH" \
+      DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
+      TMPDIR="$demo_tmp_parent" \
+      SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
   rc=$?
   set -e
   [[ "$rc" -eq 0 ]] || return 1
@@ -1837,7 +1834,7 @@ test_integrated_demo_restores_alternate_link_and_protects_regular_file() {
   [[ -z "$(find "$demo_tmp_parent" -mindepth 1 -maxdepth 1 -print -quit)" ]] || return 1
 
   rm -f "$case_root/AGENTS.md"
-  printf '%s\n' 'protected regular AGENTS file' > "$case_root/AGENTS.md"
+  printf '%s\n' 'protected regular AGENTS file' >"$case_root/AGENTS.md"
   protected_hash="$(sha256sum "$case_root/AGENTS.md" | awk '{print $1}')"
   set +e
   output="$(cd "$case_root" && SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
@@ -1866,7 +1863,7 @@ test_integrated_demo_keeps_real_current_feature_read_only() {
     return 1
   fi
   if grep -Eq '(cp|mv|install|tee|truncate)[[:space:]].*[[:space:]]CURRENT_FEATURE([[:space:]]|$)' \
-      "$demo"; then
+    "$demo"; then
     echo 'unsafe: demo still has a write primitive targeting the real CURRENT_FEATURE' >&2
     return 1
   fi
@@ -1883,7 +1880,7 @@ test_current_feature_symlink_replacement_cannot_write_victim() {
 
   cp -a "$ROOT" "$case_root" || return 1
   real_python="$(command -v python3)" || return 1
-  printf '%s\n' 'unrelated victim sentinel' > "$victim"
+  printf '%s\n' 'unrelated victim sentinel' >"$victim"
   victim_hash="$(sha256sum "$victim" | awk '{print $1}')"
   [[ -L "$case_root/AGENTS.md" ]] || return 1
   original_agents_target="$(readlink "$case_root/AGENTS.md")"
@@ -1898,19 +1895,19 @@ test_current_feature_symlink_replacement_cannot_write_victim() {
     '  : > "$DEMO_COLLISION_MARKER"' \
     'fi' \
     'exec "$DEMO_REAL_PYTHON" "$@"' \
-    > "$fake_bin/python3"
+    >"$fake_bin/python3"
   chmod +x "$fake_bin/python3"
 
   set +e
-  output="$(cd "$case_root" && \
-    PATH="$fake_bin:$PATH" \
-    DEMO_COLLISION_MARKER="$collision_marker" \
-    DEMO_COLLISION_VICTIM="$victim" \
-    DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
-    DEMO_REAL_CURRENT_FEATURE="$case_root/CURRENT_FEATURE" \
-    DEMO_REAL_PYTHON="$real_python" \
-    TMPDIR="$demo_tmp_parent" \
-    SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
+  output="$(cd "$case_root" \
+    && PATH="$fake_bin:$PATH" \
+      DEMO_COLLISION_MARKER="$collision_marker" \
+      DEMO_COLLISION_VICTIM="$victim" \
+      DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
+      DEMO_REAL_CURRENT_FEATURE="$case_root/CURRENT_FEATURE" \
+      DEMO_REAL_PYTHON="$real_python" \
+      TMPDIR="$demo_tmp_parent" \
+      SKIP_SELF_TESTS=1 ./run-demo.sh 2>&1)"
   rc=$?
   set -e
 
@@ -1990,7 +1987,7 @@ test_operational_readme_contract_and_quick_start() {
     '仅用于探索'
     '`rg` + 源码阅读'
     '不需要预先建立索引'
-    'AOSP整机源码Codex-Harness工程探索.md'
+    '../docs/AOSP整机源码Harness工程探索-codex版.md'
     'https://learn.chatgpt.com/docs/agent-configuration/agents-md'
     'https://learn.chatgpt.com/docs/build-skills'
     'https://learn.chatgpt.com/docs/hooks'
@@ -2007,17 +2004,17 @@ test_operational_readme_contract_and_quick_start() {
     return 1
   fi
   if grep -Eiq 'hooks?.*(guaranteed|保证).*AGENTS|AGENTS.*(guaranteed|保证).*hooks?' \
-      "$readme"; then
+    "$readme"; then
     return 1
   fi
 
   repo_root="$(cd "$ROOT/.." && pwd)"
   write_forbidden_command_stubs "$command_bin" || return 1
   set +e
-  output="$(cd "$repo_root" && \
-    PATH="$command_bin:$PATH" \
-    DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
-    SKIP_SELF_TESTS=1 ./codex/run-demo.sh 2>&1)"
+  output="$(cd "$repo_root" \
+    && PATH="$command_bin:$PATH" \
+      DEMO_FORBIDDEN_CALLS="$forbidden_calls" \
+      SKIP_SELF_TESTS=1 ./codex/run-demo.sh 2>&1)"
   rc=$?
   set -e
   [[ "$rc" -eq 0 ]] || return 1
@@ -2026,7 +2023,7 @@ test_operational_readme_contract_and_quick_start() {
 }
 
 test_long_form_article_contract_and_links() {
-  local article="$ROOT/AOSP整机源码Codex-Harness工程探索.md"
+  local article="$ROOT/../docs/AOSP整机源码Harness工程探索-codex版.md"
   local readme="$ROOT/README.md"
 
   python3 - "$article" "$readme" <<'PY'
@@ -2225,7 +2222,7 @@ def missing_build_guards(build_block):
         "explicit child failure branch": 'if [[ "$build_rc" -ne 0 ]]; then',
         "child status exit": 'exit "$build_rc"',
         "success marker guard": (
-            'grep -Fq "#### build completed successfully ####" '
+            'grep -Fq "#### build completed successfully" '
             '"$build_log" || exit 1'
         ),
         "artifact guard": '[[ -f "$artifact" ]] || exit 1',
@@ -2246,7 +2243,7 @@ guard_positions = [
     representative_build.index('if [[ "$build_rc" -ne 0 ]]; then'),
     representative_build.index('exit "$build_rc"'),
     representative_build.index(
-        'grep -Fq "#### build completed successfully ####" '
+        'grep -Fq "#### build completed successfully" '
         '"$build_log" || exit 1'
     ),
     representative_build.index('[[ -f "$artifact" ]] || exit 1'),
@@ -2572,7 +2569,7 @@ run_regression 'process checker rejects a client without find permission' \
 run_regression 'process checker rejects missing services device pinning' \
   test_process_layer_checker_rejects_fact \
   services-serial-pin build-services-jar \
-  'device_serial="${ANDROID_SERIAL:?Set ANDROID_SERIAL to the explicitly confirmed target serial}"' \
+  'device_serial="${ANDROID_SERIAL-}"' \
   'adb devices' 'build-services-jar ANDROID_SERIAL pin'
 run_regression 'process checker rejects missing services target validation' \
   test_process_layer_checker_rejects_fact \

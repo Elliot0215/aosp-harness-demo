@@ -26,7 +26,10 @@ while [ "$#" -gt 0 ]; do
       }
       CRASH_SINCE="$1"
       ;;
-    *) echo "usage: $0 [--demo] [--allow-skip] [--since <epoch-seconds>]" >&2; exit 2 ;;
+    *)
+      echo "usage: $0 [--demo] [--allow-skip] [--since <epoch-seconds>]" >&2
+      exit 2
+      ;;
   esac
   shift
 done
@@ -44,22 +47,35 @@ if [[ "$DEMO" -eq 0 ]]; then
   ADB=(adb -s "$serial")
 fi
 
-pass=0; fail=0; skip=0
-ok()   { echo "PASS  $1"; pass=$((pass+1)); }
-no()   { echo "FAIL  $1"; fail=$((fail+1)); }
-sk()   { echo "SKIP  $1"; skip=$((skip+1)); }
+pass=0
+fail=0
+skip=0
+ok() {
+  echo "PASS  $1"
+  pass=$((pass + 1))
+}
+no() {
+  echo "FAIL  $1"
+  fail=$((fail + 1))
+}
+sk() {
+  echo "SKIP  $1"
+  skip=$((skip + 1))
+}
 
 # adb 包装：demo 下返回预置样本，真实下调真 adb
 adb_shell() {
   if [ $DEMO -eq 1 ]; then
     case "$*" in
-      "getprop sys.boot_completed")      echo "1" ;;
-      "pidof system_server")             echo "1423" ;;
-      "service list")                    echo "52  sidebar: [android.sidebar.ISidebar]" ;;
+      "getprop sys.boot_completed") echo "1" ;;
+      "pidof system_server") echo "1423" ;;
+      "service list") echo "52  sidebar: [android.sidebar.ISidebar]" ;;
       "pm list packages")
-        [ "${DEMO_APP_INSTALLED:-1}" == "1" ] && echo "package:com.android.sidebar"
+        if [ "${DEMO_APP_INSTALLED:-1}" == "1" ]; then
+          echo "package:com.android.sidebar"
+        fi
         ;;
-      *)                                  echo "" ;;
+      *) echo "" ;;
     esac
   else
     "${ADB[@]}" shell "$@" 2>/dev/null
@@ -127,12 +143,16 @@ else
 fi
 
 # 4) 新增系统服务 + 边栏 app 存在
-if adb_shell service list | grep -q 'sidebar:'; then
+if ! service_list="$(adb_shell service list)"; then
+  no "service list 查询失败"
+elif grep -Eq '(^|[[:space:]])sidebar:' <<<"$service_list"; then
   ok "系统服务 sidebar 已注册"
 else
   no "service list 未见 sidebar"
 fi
-if adb_shell pm list packages | grep -q 'com.android.sidebar'; then
+if ! package_list="$(adb_shell pm list packages)"; then
+  no "pm list packages 查询失败"
+elif grep -Eq '^package:com[.]android[.]sidebar[[:space:]]*$' <<<"$package_list"; then
   ok "边栏 app com.android.sidebar 已安装"
 else
   # feature 早期允许 SKIP，随开发推进转硬断言
