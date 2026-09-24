@@ -133,7 +133,7 @@ LineageOS 社区开发者的 Claude Code 插件（MIT）：四个按触发词自
 
 - **优点**：**工程骨架是四家里最值得抄的**——单仓分发多 skill + agent（plugin.json/marketplace 一键装）、渐进式披露（SKILL.md 速查 + `references/` 深度页按需加载）、触发词自动激活、受限工具 + 固定工作流的子代理模板、仓库自校验 Makefile（CI 强制每个 skill 结构合规）。
 - **局限**：内容是**参考手册级的通用知识**（adb/fastboot/构建命令速查），视角偏三方 ROM 玩机而非整机平台开发；不绑定任何具体源码树——不知道你的 feature、你的编译产物、你的验证脚本；对树内导航、上下文经济、gerrit 污染等核心矛盾不涉及。
-- **我们的取舍**：抄骨架、自己填肉——渐进式披露和触发激活的思想直接体现在我们的模块流程设计里；当前 skills 保留 `paths` 元数据，其客户端加载边界见第六节。
+- **我们的取舍**：抄骨架、自己填肉——渐进式披露和触发激活的思想直接体现在我们的模块流程设计里；当前 skills 由 feature 指令显式选择，不保留 `paths` 元数据；客户端加载边界见第六节。
 
 ### Android-Software：分层专家路由的知识包
 
@@ -182,8 +182,8 @@ quadrantChart
 **三个术语（三层各自的关键落地物，正文表格里会直接用到）：**
 
 - **启动前 feature wrapper + SessionStart 兜底**：真实树中的 `.claude/bin/claude-feature` 先读当前分支、校验 `repos.tsv` 中的涉及仓、再把树根 `CLAUDE.md` 软链指向 `features/<分支>/CLAUDE.md`，最后才 `exec claude`。这样 Claude 读取 project memory 前，目标就已经确定。SessionStart hook 只做幂等检查、恢复与诊断，不能承担“本次启动一定已重新读取 memory”的正确性保证（第①层，详见第五节）。配套 demo 使用相同的 `.claude/bin/claude-feature` 路径。
-- **流程 skill**：把模块的构建目标、产物、部署步骤和验证要求放在独立 `SKILL.md` 中，feature 上下文引用对应流程。当前两份 Claude skill 保留了 `paths` 元数据；仓库离线测试检查文件和命令，不证明任一客户端版本的自动加载行为（第②层，详见第六节）。
-- **`features/<分支>/verify-*.sh` 确定性脚本**：每个 feature 自带的验证脚本，就是这个 feature 的"测试"。单项输出 **PASS/FAIL/SKIP**，最终状态是 **PASS/FAIL/INCOMPLETE**；默认任何 SKIP 都是未完成并返回非零，只有 demo 探索阶段显式传 `--demo --allow-skip` 才允许带 SKIP 通过（第③层验证闭环，详见第七节）。
+- **流程 skill**：把模块的构建目标、产物、部署步骤和验证要求放在独立 `SKILL.md` 中，feature 上下文引用对应流程。当前两份 Claude skill 使用 `name` / `description`，通过 feature 指令显式选择，不保留 `paths` 元数据；仓库离线测试检查文件和命令，不证明真实客户端加载行为（第②层，详见第六节）。
+- **`features/<分支>/verify-*.sh` 确定性脚本**：每个 feature 自带的验证脚本，就是这个 feature 的"测试"。单项输出 **PASS/FAIL/SKIP**，最终状态是 **PASS/FAIL/INCOMPLETE**；默认任何 SKIP 都是未完成并返回非零，只有 demo 探索阶段显式传 `--demo --allow-skip` 才允许带 SKIP 返回 0，最终仍为 `RESULT INCOMPLETE`（第③层验证闭环，详见第七节）。
 
 ### 4.2 三层总览
 
@@ -468,22 +468,20 @@ bash -c 'source build/envsetup.sh >/dev/null 2>&1 \
 | [build-services-jar](../claude-code/features/.harness/skills/build-services-jar/SKILL.md) | `m services`、`services.jar` 路径、固定设备的 push 步骤、ART 缓存风险、API 和 SELinux 依赖 | lunch 产品、产物位置、部署是否需要联动其他模块 |
 | [build-sepolicy](../claude-code/features/.harness/skills/build-sepolicy/SKILL.md) | service context 与 type 示例、`m selinux_policy`、镜像部署说明、denial 和服务查询 | 目标树的策略规则、客户端权限及完整镜像部署方式 |
 
-仓库未提供 `build-inputflinger`、`build-libgui` 或 SidebarFlinger 专用 skill。feature 文本中的 native 流程引用是扩展位置，使用前需要补齐。Claude 版 sepolicy 示例与 Codex 版的属性写法也尚未统一；离线脚本检查不能证明这些策略能在某个真实 AOSP 分支编译。
+仓库未提供 `build-inputflinger`、`build-libgui` 或 SidebarFlinger 专用 skill。feature 指令要求从实际模块及现有构建入口确定 native 流程，不再路由到不存在的 skill。Claude 版 sepolicy 示例与 Codex 版的属性写法也尚未统一；离线脚本检查不能证明这些策略能在某个真实 AOSP 分支编译。
 
-### 6.2 路径元数据与调用边界
+### 6.2 显式调用边界
 
-当前 Claude skills 保留 `paths` 元数据。例如 services skill 的头部为：
+当前 Claude skills 使用 `name` / `description`，由 feature 指令显式路由。例如 services skill 的头部为：
 
 ```yaml
 ---
 name: build-services-jar
 description: 编译 / 部署 services.jar —— 改 frameworks/base/services 下代码（含 SystemServer 注册系统服务）时用
-paths:
-  - "frameworks/base/services/**"
 ---
 ```
 
-这里的路径表示该流程针对的源码范围。是否、何时向模型展示或加载 skill，由实际客户端处理；本仓没有实现路径匹配加载器，离线测试也不会启动客户端验证自动激活。因此使用流程时，应由任务和 feature 指引明确选择，并读取正文后执行。
+修改 services 或 sepolicy 前，按 feature 指令显式读取 `.claude/skills/<skill>/SKILL.md` 或使用 `/skill-name`。读取流程不触发全部构建、部署和验收步骤；选择当前任务已授权的操作。本仓不承诺基于源码路径的自动加载，离线检查也不证明真实客户端已加载 skill。
 
 早期整机环境曾记录过“读取 inputflinger 后出现 `build-inputflinger`、读取 libgui 后出现 `build-libgui`”的观察，也因此把公共目录从 `features/.claude/` 调整为 `features/.harness/`。这些记录解释了设计来源；它们不代表当前两个教学 skills 已在所有客户端版本上获得同样结果。
 
@@ -565,14 +563,14 @@ ANDROID_SERIAL="${ANDROID_SERIAL:?Set the confirmed target serial}" \
   ./features/dev-sidebar/verify-sidebar.sh
 ```
 
-默认以设备启动时间为基线；需要排除早于本次部署的记录时，再传入明确的 `--since`。收工要求输出 `RESULT PASS` 且退出码为 0。
+默认以设备启动时间为基线；需要排除早于本次部署的记录时，再传入明确的 `--since`。整个 feature 交付要求输出 `RESULT PASS` 且退出码为 0；小需求按已约定的自身验收判断，规划不触发构建。
 
 | 最终结果 | 条件 | 退出码 |
 | --- | --- | --- |
 | `RESULT PASS` | 没有 FAIL 或 SKIP | 0 |
 | `RESULT FAIL` | 存在 FAIL | 1 |
 | `RESULT INCOMPLETE` | 无 FAIL，但存在 SKIP | 1 |
-| `RESULT PASS (SKIP allowed)` | 仅 `--demo --allow-skip` 下允许 SKIP | 0，仅用于探索 |
+| `RESULT INCOMPLETE`（探索模式） | 仅 `--demo --allow-skip` 下允许 SKIP | 0，仍未完成，仅用于探索 |
 
 真实模式传 `--allow-skip` 会返回 2，不能用这个选项放宽设备验收。不连设备时可以运行以下两种演示：
 
@@ -678,7 +676,7 @@ timeline
 | 无符号级索引，全文本导航 | 按路径与符号缩小范围，搜索当前工作树；生成代码、反射、动态注册仍需另行分析，文本匹配不保证完整影响面 |
 | 单树单分支 | repo 树没有 git worktree 等价物，并行两个 feature 需要两棵树 |
 | 子代理上下文不统一 | 普通自定义子代理通常加载 memory hierarchy；内建 Explore/Plan 跳过 `CLAUDE.md`。不注入全文，派发时始终给最小任务卡 |
-| skill 调用依赖客户端与任务选择 | 当前只提供两个 skills，保留 `paths` 元数据；离线检查不验证自动加载。关键流程应明确选择并检查执行证据 |
+| skill 调用依赖客户端与任务选择 | 当前只提供两个 skills，通过 feature 指令显式选择，不保留 `paths` 元数据；离线检查不验证真实客户端加载。关键流程应明确选择并检查执行证据 |
 | 公共层的物理目录名是有约束的，不能随手改 | 早期环境中叫 `.claude` 曾触发 skill 重复注册（第四节末），叫不带前导点的名字会和 feature 分支名有撞名风险。改名前先想清楚这两条 |
 | 漂移只告警，快照共享 | 不按 session_id 隔离，不检查所有仓；多会话可能覆盖或清理彼此快照 |
 | 两端实现有差异 | Claude 分支清单主要读取首列，构建块较简化；不具备 Codex 的全部 TSV、状态与时间戳校验 |
@@ -707,3 +705,9 @@ timeline
 - utzcoz：*Using Claude Code on AOSP-scale projects*（harness engineering 十模式，https://utzcoz.github.io/2026/04/26/using-claude-code-on-aosp-scale-projects.html）
 - Claude Code 官方文档：hooks / skills / memory / large-codebases；[Subagents — What loads at startup](https://code.claude.com/docs/en/sub-agents#what-loads-at-startup)（普通子代理的隔离上下文、内建 Explore/Plan 跳过 `CLAUDE.md` 与 git status）
 - 社区同类方案（见第三节）：Lightrion AOSP RAG（https://lightrion.com/docs）、hyperb1iss/hyperdroid-skill（https://github.com/hyperb1iss/hyperdroid-skill）、jonaschen/Android-Software（https://github.com/jonaschen/Android-Software）
+
+### intent 协作与分层验收
+
+当前示例按 [协作约定](../skills/build-aosp-harness/references/intent-cooperation.md) 在 feature 内使用 `.intent/` 存放新规划，保留已有文档原位。小需求依据事先约定的自身验收与必要回归交付，独立审查仅在用户要求或项目规则要求时成为完成条件；整个 feature 仍需全部需求和严格验证最终 `RESULT PASS`、退出 0。本文的整体 PASS 要求用于 feature 交付，不作为澄清、规划或其他独立小需求的完成条件。
+
+`--demo --allow-skip` 有跳过时输出 `RESULT INCOMPLETE`、退出 0；严格模式仍非零，失败优先于跳过。离线演示不证明真实客户端调用、Android 编译或设备行为。规划不自动启动构建，读取 build skill 不自动授权部署；worker 使用明确仓路径范围，共享构建目录和设备串行安排。

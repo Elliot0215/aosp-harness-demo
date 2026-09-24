@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        {
+          "matcher": "^(startup|resume|clear|compact)$",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bash \"${ZCODE_PROJECT_DIR}/.zcode/hooks/session-lifecycle.sh\"",
+              "timeout": 10,
+              "statusMessage": "Recording the active AOSP feature"
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bash \"${ZCODE_PROJECT_DIR}/.zcode/hooks/session-lifecycle.sh\"",
+              "timeout": 10,
+              "statusMessage": "Checking AOSP feature consistency"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

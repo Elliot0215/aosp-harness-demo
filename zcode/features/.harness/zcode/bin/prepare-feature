@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Sole harness entry: prepare the feature context for a NEW ZCode App session.
+# Never launches any client binary.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd -P)"
+ROOT="${HARNESS_ROOT:-$DEFAULT_ROOT}"
+source "$SCRIPT_DIR/../hooks/feature-common.sh"
+
+if [[ "$#" -ne 0 ]]; then
+  echo 'usage: prepare-feature' >&2
+  exit 2
+fi
+
+feature=''
+if feature="$(detect_feature "$ROOT")"; then
+  detect_rc=0
+else
+  detect_rc=$?
+fi
+if [[ "$detect_rc" -eq 2 ]] || { [[ "$detect_rc" -eq 0 ]] && ! valid_feature_name "$feature"; }; then
+  echo "error: INVALID feature；名称必须是单行 ASCII 单组件 [A-Za-z0-9][A-Za-z0-9._-]*。ZCode 未启动。" >&2
+  exit 1
+fi
+if [[ "$detect_rc" -ne 0 || -z "$feature" ]]; then
+  echo "error: 无法从锚点仓分支或 $ROOT/CURRENT_FEATURE 检测 feature；ZCode 未启动。" >&2
+  exit 1
+fi
+
+expected_target="features/$feature/AGENTS.md"
+if ! target="$(feature_context_path "$ROOT" "$feature")"; then
+  echo "error: feature '$feature' 缺少 $expected_target；请创建该上下文或修正 CURRENT_FEATURE。ZCode 未启动。" >&2
+  exit 1
+fi
+
+if [[ -d "$ROOT/.repo" ]]; then
+  check_branch="$ROOT/features/$feature/check-branch.sh"
+  if [[ ! -x "$check_branch" ]]; then
+    echo "error: 缺少可执行的 $check_branch，无法校验涉及仓分支；ZCode 未启动。" >&2
+    exit 1
+  fi
+  if ! HARNESS_ROOT="$ROOT" FEATURE_NAME="$feature" "$check_branch"; then
+    echo "error: feature '$feature' 的涉及仓分支校验失败；AGENTS.md 未切换，ZCode 未启动。" >&2
+    exit 1
+  fi
+fi
+
+sync_feature_link "$ROOT" "$target"
+echo "[prepare-feature] AGENTS.md -> $target"

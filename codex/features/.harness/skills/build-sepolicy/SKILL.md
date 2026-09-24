@@ -117,4 +117,12 @@ trap - EXIT
 unlink "$device_output"
 ```
 
-After boot, inspect denials and service registration. Investigate every new relevant denial rather than assuming an empty or filtered query proves correctness. Run the applicable `features/<feature>/verify-*.sh` scripts and accept completion only when the final result is `RESULT PASS`.
+After boot, inspect denials and service registration. Investigate every new relevant denial rather than assuming an empty or filtered query proves correctness. For whole-feature delivery, run the applicable `features/<feature>/verify-*.sh` scripts and require exact `RESULT PASS` with exit 0; apply the requirement-level acceptance below to individual tasks.
+
+## Execution scope and acceptance
+
+Read this skill before the routed source change; reading it does not execute every command. Requirement clarification and planning do not start builds. Select build commands, deployment actions and acceptance checks separately according to the current authorized task. Calling intent-implement does not by itself authorize device deployment, restart or data cleanup. Use the confirmed device/CVD group and retain the existing device protections.
+
+Read the active feature instructions and run its branch checker before source writes; repeat before later writes not covered by hooks. Record the affected repository subset, build target, artifacts, applicable checks and environment dependencies in the current requirement document. Serialize builds sharing one `out/`, and operations sharing a device or CVD group; the main agent owns shared planning documents.
+
+Complete a requirement against its agreed acceptance and necessary regressions; independent review is required only when requested by the user or project rules. Keep other unfinished requirements visible without blocking an already accepted requirement. Whole-feature delivery requires all requirements plus the full `features/<feature>/verify-*.sh` acceptance: exact `RESULT PASS`, exit 0, no required SKIP. An exploration result `RESULT INCOMPLETE` with exit 0 is incomplete. Report planning, offline Harness checks, compilation, requirement delivery and device acceptance separately; investigate relevant failures instead of retroactively excluding checks. If required environment or review is unavailable, report partial results and the next concrete operation.

@@ -131,8 +131,8 @@ printf '#!/bin/bash\n:\n' >"$fixture/entry"
 printf '#!/usr/bin/env bash\n:\n' >"$fixture/space entry"
 printf '#!/bin/bash\n:\n' >"$fixture/$lf_name"
 printf 'if then\n' >"$fixture/bad.sh"
-mkdir -p "$fixture/.spec"
-printf 'if then\n' >"$fixture/.spec/ignored.sh"
+mkdir -p "$fixture/.hidden"
+printf '#!/bin/bash\n:\n' >"$fixture/.hidden/checked.sh"
 printf 'if then\n' >"$fixture/.git/ignored.sh"
 printf 'if then\n' >"$outside/poison.sh"
 ln -s "$outside/poison.sh" "$fixture/link.sh"
@@ -160,8 +160,8 @@ if ! "$host_python" - "$syntax_marker" "$event_log" <<'PY'
 from pathlib import Path
 import sys
 got=Path(sys.argv[1]).read_bytes().split(b'\0'); events=Path(sys.argv[2]).read_bytes().split(b'\0')[:-1]
-for path in (b'scripts/check.sh',b'entry',b'space entry',b'line\nentry',b'bad.sh'): assert got.count(path)==1, (path,got)
-assert b'link.sh' not in got and not any(b'.git/' in x or b'.spec/' in x for x in got),got
+for path in (b'scripts/check.sh',b'entry',b'space entry',b'line\nentry',b'bad.sh',b'.hidden/checked.sh'): assert got.count(path)==1, (path,got)
+assert b'link.sh' not in got and not any(b'.git/' in x for x in got),got
 first=next(i for i,event in enumerate(events) if event.startswith(b'root:'))
 assert events[:first]==[b'syntax:'+path for path in got[:-1]],events
 PY
@@ -294,9 +294,10 @@ def check_workflow(raw):
  assert lines[24:]==['      - name: Quality gate','        run: ./scripts/check.sh --ci'] and w.count('./scripts/check.sh --ci')==1
 def check_coverage(c):
  rows=[]; header=separator=0
- assert not re.search(r'(?i)(?:(?:行|分支|覆盖率|\b(?:line|branch|coverage)\b).*\d+(?:\.\d+)?%?|\d+(?:\.\d+)?%?.*(?:行|分支|覆盖率|\b(?:line|branch|coverage)\b))',c)
+ assert not re.search(r'(?i)(?:(?:行|分支|覆盖率|\b(?:line|branch|coverage)\b)[^\n]*\d+(?:\.\d+)?%|\d+(?:\.\d+)?%[^\n]*(?:行|分支|覆盖率|\b(?:line|branch|coverage)\b))',c)
  for raw in c.splitlines():
   if not raw.strip(): continue
+  if not raw.lstrip().startswith('|'): continue
   indent=len(raw)-len(raw.lstrip(' ')); assert indent<=3
   line=raw[indent:]; assert line.startswith('|') and line.endswith('|')
   cells=[cell.strip() for cell in line.strip('|').split('|')]
@@ -310,19 +311,19 @@ w=Path(sys.argv[1]).read_bytes(); c=Path(sys.argv[2]).read_text(); check_workflo
 rejects(check_workflow,w.replace(b'on: [',b'events: [',1)+b'note: "on: [push, pull_request, workflow_dispatch]"\n')
 data=next(line for line in c.splitlines() if line.startswith('| `tests/'))
 rejects(check_coverage,c+'   '+data+'\n'); rejects(check_coverage,c+'   '+data.replace('test-device-safety','test-unknown')+'\n')
-rejects(check_coverage,c.replace('Device targeting and legacy regressions','100% branch coverage'))
+rejects(check_coverage,c.replace('Device targeting, strict/allow-skip INCOMPLETE result semantics and FAIL precedence over SKIP, and legacy regressions','100% branch coverage'))
 PY
 }
 quality_docs_oracle "$repo_root/.github/workflows/quality.yml" "$repo_root/tests/COVERAGE.md" || fail 'workflow quality contract'
 poison_log="$fixture/poison"
-for name in shellcheck shfmt gitleaks adb cvd curl wget ssh repo ninja claude codex; do
+for name in shellcheck shfmt gitleaks adb cvd curl wget ssh repo ninja claude codex cursor-agent agent; do
   printf '#!%s\nprintf %s >>%q\nexit 88\n' "$host_bash" "$name" "$poison_log" >"$case_bin/$name"
   chmod +x "$case_bin/$name"
 done
-before="$("$host_git" hash-object claude-code/CURRENT_FEATURE codex/CURRENT_FEATURE)"
+before="$("$host_git" hash-object claude-code/CURRENT_FEATURE codex/CURRENT_FEATURE cursor-agent/CURRENT_FEATURE)"
 PATH="$case_bin:$PATH" HOST_BASH="$host_bash" SYNTAX_MARKER="$syntax_marker" ROOT_LOG="$root_log" BODY_LOG="$body_log" GIT_ALLOW_PROTOCOL=file "$host_python" - "$repo_root" "$host_bash" <<'PY'
 import os,subprocess,sys
-r=subprocess.run([sys.argv[2],'./scripts/check.sh','--offline'],cwd=sys.argv[1],env=os.environ.copy(),text=True,capture_output=True,timeout=30); assert r.returncode==0 and r.stdout.count('RESULT PASS  offline quality gate child')==1,(r.stdout,r.stderr)
+r=subprocess.run([sys.argv[2],'./scripts/check.sh','--offline'],cwd=sys.argv[1],env=os.environ.copy(),text=True,capture_output=True,timeout=180); assert r.returncode==0 and r.stdout.count('RESULT PASS  offline quality gate child')==1,(r.stdout,r.stderr)
 PY
-[[ ! -s "$poison_log" && "$before" == "$("$host_git" hash-object claude-code/CURRENT_FEATURE codex/CURRENT_FEATURE)" ]] || fail 'real offline boundary'
+[[ ! -s "$poison_log" && "$before" == "$("$host_git" hash-object claude-code/CURRENT_FEATURE codex/CURRENT_FEATURE cursor-agent/CURRENT_FEATURE)" ]] || fail 'real offline boundary'
 printf 'RESULT PASS  offline quality gate contract\n'

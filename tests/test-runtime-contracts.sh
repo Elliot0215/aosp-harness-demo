@@ -14,9 +14,16 @@ import tempfile
 root = Path(sys.argv[1])
 
 
+def skill_path(client, skill):
+    if client == 'cursor-agent':
+        return root / client / 'features/.harness/cursor/skills' / skill / 'SKILL.md'
+    if client == 'zcode':
+        return root / client / 'features/.harness/zcode/skills' / skill / 'SKILL.md'
+    return root / client / 'features/.harness/skills' / skill / 'SKILL.md'
+
+
 def blocks(client, skill):
-    source = root / client / 'features/.harness/skills' / skill / 'SKILL.md'
-    return re.findall(r'```bash\n(.*?)```', source.read_text(), re.S)
+    return re.findall(r'```bash\n(.*?)```', skill_path(client, skill).read_text(), re.S)
 
 
 with tempfile.TemporaryDirectory(prefix='harness-runtime-') as temporary:
@@ -98,7 +105,7 @@ else:
         return result, calls
 
     # Run the actual Markdown blocks in a default Bash shell, without inherited errexit.
-    for client in ('claude-code', 'codex'):
+    for client in ('claude-code', 'codex', 'cursor-agent', 'zcode'):
         deploy = next(block for block in blocks(client, 'build-services-jar')
                       if 'adb -s' in block and ' push ' in block)
         expected = ['get-state', 'root', 'remount', 'push', 'reboot']
@@ -119,39 +126,40 @@ else:
     # Build status, actual AOSP log formats, and artifacts are independent evidence.
     artifacts = {'build-services-jar': 'system/framework/services.jar',
                  'build-sepolicy': 'system/etc/selinux/plat_sepolicy.cil'}
-    for skill, relative in artifacts.items():
-        for full in (False, True):
-            build = next(block for block in blocks('codex', skill)
-                         if ('full_build_pid=$!' if full else '\nbuild_pid=$!') in block)
-            artifact = fixture / 'out/target/product/vsoc_x86_64' / ('system.img' if full else relative)
-            cases = [
-                ({}, 0),
-                ({'HARNESS_TEST_MARKER': '#### build completed successfully (01:23 (mm:ss)) ####'}, 0),
-                ({'HARNESS_TEST_MARKER': '\033[32m#### build completed successfully  ####\033[0m'}, 0),
-                ({'HARNESS_TEST_BUILD_RC': '73'}, 73),
-                ({'HARNESS_TEST_ENVSETUP_RC': '73'}, 73),
-                ({'HARNESS_TEST_LUNCH_RC': '73'}, 73),
-                ({'HARNESS_TEST_MARKER': '#### failed to build some targets ####'}, 1),
-                ({'HARNESS_TEST_ARTIFACT_MODE': 'missing'}, 1),
-            ]
-            if full:
-                cases += [({'HARNESS_TEST_FAIL': step}, 73) for step in ('fleet', 'stop', 'start')]
-            for overrides, expected_rc in cases:
-                if artifact.exists():
-                    artifact.unlink()
-                result, calls = run(['bash', '-c', build], HARNESS_TEST_ARTIFACT=str(artifact), **overrides)
-                assert result.returncode == expected_rc, (skill, full, overrides, result)
-                cvd = [call[-1] for call in calls if call[0] == 'cvd']
-                expected = ['fleet', 'stop', 'start'] if full else []
-                if overrides.get('HARNESS_TEST_FAIL'):
-                    expected = expected[:expected.index(overrides['HARNESS_TEST_FAIL']) + 1]
-                elif expected_rc:
-                    expected = []
-                assert cvd == expected, (skill, overrides, calls)
+    for client in ('codex', 'cursor-agent', 'zcode'):
+        for skill, relative in artifacts.items():
+            for full in (False, True):
+                build = next(block for block in blocks(client, skill)
+                             if ('full_build_pid=$!' if full else '\nbuild_pid=$!') in block)
+                artifact = fixture / 'out/target/product/vsoc_x86_64' / ('system.img' if full else relative)
+                cases = [
+                    ({}, 0),
+                    ({'HARNESS_TEST_MARKER': '#### build completed successfully (01:23 (mm:ss)) ####'}, 0),
+                    ({'HARNESS_TEST_MARKER': '\033[32m#### build completed successfully  ####\033[0m'}, 0),
+                    ({'HARNESS_TEST_BUILD_RC': '73'}, 73),
+                    ({'HARNESS_TEST_ENVSETUP_RC': '73'}, 73),
+                    ({'HARNESS_TEST_LUNCH_RC': '73'}, 73),
+                    ({'HARNESS_TEST_MARKER': '#### failed to build some targets ####'}, 1),
+                    ({'HARNESS_TEST_ARTIFACT_MODE': 'missing'}, 1),
+                ]
+                if full:
+                    cases += [({'HARNESS_TEST_FAIL': step}, 73) for step in ('fleet', 'stop', 'start')]
+                for overrides, expected_rc in cases:
+                    if artifact.exists():
+                        artifact.unlink()
+                    result, calls = run(['bash', '-c', build], HARNESS_TEST_ARTIFACT=str(artifact), **overrides)
+                    assert result.returncode == expected_rc, (client, skill, full, overrides, result)
+                    cvd = [call[-1] for call in calls if call[0] == 'cvd']
+                    expected = ['fleet', 'stop', 'start'] if full else []
+                    if overrides.get('HARNESS_TEST_FAIL'):
+                        expected = expected[:expected.index(overrides['HARNESS_TEST_FAIL']) + 1]
+                    elif expected_rc:
+                        expected = []
+                    assert cvd == expected, (client, skill, overrides, calls)
     print('PASS  build evidence and CVD failure propagation')
 
-    # Exercise the real verifier with both lookalikes and output exceeding a pipe buffer.
-    for client in ('claude-code', 'codex'):
+    # Exercise the real verifier with lookalikes and output exceeding a pipe buffer.
+    for client in ('claude-code', 'codex', 'cursor-agent', 'zcode'):
         command = ['bash', str(root / client / 'features/dev-sidebar/verify-sidebar.sh')]
         cases = [({}, 'RESULT PASS')]
         for variable in ('HARNESS_TEST_PACKAGE', 'HARNESS_TEST_SERVICE'):
@@ -196,6 +204,85 @@ else:
     hook('SessionEnd')
     assert not snapshot.exists()
     print('PASS  configured hooks support paths with spaces and clean up state')
+
+    # Execute Cursor hooks.json commands, including drift deny/continue payloads.
+    cursor_project = fixture / 'cursor tree with spaces'
+    shutil.copytree(root / 'cursor-agent/features/.harness/cursor/hooks',
+                    cursor_project / '.cursor/hooks')
+    for feature in ('dev-a', 'dev-b'):
+        context = cursor_project / 'features' / feature / 'AGENTS.md'
+        context.parent.mkdir(parents=True)
+        context.write_text(f'# {feature}\n')
+    cursor_current = cursor_project / 'CURRENT_FEATURE'
+    cursor_current.write_text('dev-a\n')
+    cursor_hooks = json.loads(
+        (root / 'cursor-agent/features/.harness/cursor/hooks.json').read_text())
+    cursor_state = fixture / 'cursor-state'
+
+    def cursor_hook(event):
+        command = cursor_project / cursor_hooks['hooks'][event][0]['command']
+        result = subprocess.run(['bash', str(command)], cwd=cursor_project,
+                                env=dict(environment, HARNESS_ROOT=str(cursor_project),
+                                         CURSOR_HARNESS_STATE_DIR=str(cursor_state)),
+                                input=json.dumps({'session_id': 'test-session',
+                                                  'hook_event_name': event}),
+                                text=True, capture_output=True, timeout=20)
+        assert result.returncode == 0, result
+        return result.stdout
+
+    assert cursor_hook('sessionStart') == ''
+    assert (cursor_state / 'test-session.feature').read_text() == 'dev-a\n'
+    assert cursor_hook('beforeSubmitPrompt') == ''
+    cursor_current.write_text('dev-b\n')
+    prompt_stop = json.loads(cursor_hook('beforeSubmitPrompt'))
+    assert prompt_stop['continue'] is False
+    assert 'dev-a' in prompt_stop['user_message'] and 'dev-b' in prompt_stop['user_message']
+    tool_stop = json.loads(cursor_hook('preToolUse'))
+    assert tool_stop['permission'] == 'deny'
+    assert 'dev-a' in tool_stop['agent_message'] and 'dev-b' in tool_stop['agent_message']
+    print('PASS  Cursor hooks.json commands support paths with spaces')
+
+    # Execute ZCode config.json hook commands, including the exit-2 drift block.
+    zcode_project = fixture / 'zcode tree with spaces'
+    shutil.copytree(root / 'zcode/features/.harness/zcode/hooks',
+                    zcode_project / '.zcode/hooks')
+    for feature in ('dev-a', 'dev-b'):
+        context = zcode_project / 'features' / feature / 'AGENTS.md'
+        context.parent.mkdir(parents=True)
+        context.write_text(f'# {feature}\n')
+    zcode_current = zcode_project / 'CURRENT_FEATURE'
+    zcode_current.write_text('dev-a\n')
+    (zcode_project / 'AGENTS.md').symlink_to('features/dev-a/AGENTS.md')
+    zcode_config = json.loads(
+        (root / 'zcode/features/.harness/zcode/config.json').read_text())
+    zcode_state = fixture / 'zcode-state'
+
+    def zcode_hook(source):
+        event = 'UserPromptSubmit' if source == 'prompt' else 'SessionStart'
+        groups = zcode_config['hooks']['events'][event]
+        command = [h['command'] for group in groups
+                   if event != 'SessionStart' or re.search(group.get('matcher', ''), source)
+                   for h in group['hooks']][0]
+        return subprocess.run(['bash', '-c', command], cwd=zcode_project,
+                              env=dict(environment, ZCODE_PROJECT_DIR=str(zcode_project),
+                                       HARNESS_ROOT=str(zcode_project),
+                                       ZCODE_HARNESS_STATE_DIR=str(zcode_state)),
+                              input=json.dumps({'session_id': 'test-session',
+                                                'cwd': str(zcode_project),
+                                                'hook_event_name': event, 'source': source}),
+                              text=True, capture_output=True, timeout=20)
+
+    started = zcode_hook('startup')
+    assert started.returncode == 0, started
+    assert (zcode_state / 'test-session.feature').read_text() == 'dev-a\n'
+    assert zcode_hook('prompt').returncode == 0
+    zcode_current.write_text('dev-b\n')
+    stopped = zcode_hook('prompt')
+    assert stopped.returncode == 2, stopped
+    assert stopped.stdout == '', stopped.stdout
+    assert 'AGENTS.md was not prepared for the active feature' in stopped.stderr, stopped.stderr
+    assert 'NEW ZCode session' in stopped.stderr, stopped.stderr
+    print('PASS  ZCode config.json hook commands support paths with spaces')
 
 print('RESULT PASS  runtime contracts')
 PY

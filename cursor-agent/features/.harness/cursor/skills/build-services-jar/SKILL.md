@@ -1,0 +1,113 @@
+---
+name: build-services-jar
+description: Build and deploy AOSP services.jar after changes under frameworks/base/services, including SystemServer services; use for compile targets, artifacts, push steps, ART cache risks, and feature verification.
+---
+
+# Build services.jar
+
+Select this repository skill explicitly as `/build-services-jar` when an `AGENTS.md` route requires it. Cursor Agent may also select it implicitly when the frontmatter description matches the task. File paths alone do not select skills.
+
+
+## Build in one retained session
+
+Submit this entire block as one shell invocation. Cursor Agent must keep polling the same exec session until it exits; starting the build in one session and waiting in another loses the child status.
+
+```bash
+bash -c '
+set -u
+build_log="$(mktemp "${TMPDIR:-/tmp}/build-services.XXXXXX.log")"
+artifact="out/target/product/vsoc_x86_64/system/framework/services.jar"
+printf "build log: %s\n" "$build_log"
+(
+  source build/envsetup.sh >/dev/null 2>&1 &&
+  lunch aosp_cf_x86_64_phone-trunk_staging-userdebug >/dev/null 2>&1 &&
+  m services
+) >"$build_log" 2>&1 &
+build_pid=$!
+while kill -0 "$build_pid" 2>/dev/null; do
+  tail -n 20 "$build_log"
+  sleep 10
+done
+wait "$build_pid"
+build_rc=$?
+if [[ "$build_rc" -ne 0 ]]; then
+  tail -n 200 "$build_log" >&2
+  exit "$build_rc"
+fi
+grep -Fq "#### build completed successfully" "$build_log" || exit 1
+[[ -f "$artifact" ]] || exit 1
+printf "artifact: %s\n" "$artifact"
+'
+```
+
+Build success requires the child exit status, the stable `#### build completed successfully` prefix (AOSP appends elapsed time), and the artifact `out/target/product/vsoc_x86_64/system/framework/services.jar`.
+
+## Pin and deploy to one device
+
+Set `ANDROID_SERIAL` only after explicitly confirming the target device. Every ADB command must retain the same serial because root, remount, push, and reboot change device state.
+
+This teaching block has no immutable backup, atomic replacement, group rollback, or boot-cycle verification. For a real-device Harness, implement and test a transactional deployment entry point; do not reuse direct push for mmap-backed ELF files. See the repository's [deployment contract](../../../../../skills/build-aosp-harness/references/deployment-transactions.md) when adapting this example.
+
+```bash
+device_serial="${ANDROID_SERIAL-}"
+if [[ -z "$device_serial" || ! "$device_serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
+  printf 'Set ANDROID_SERIAL to the explicitly confirmed target serial\n' >&2
+  exit 2
+fi
+adb -s "$device_serial" get-state || exit $?
+adb -s "$device_serial" root || exit $?
+adb -s "$device_serial" remount || exit $?
+adb -s "$device_serial" push \
+  out/target/product/vsoc_x86_64/system/framework/services.jar \
+  /system/framework/services.jar || exit $?
+adb -s "$device_serial" reboot || exit $?
+```
+
+A pushed jar can disagree with ART, dexpreopt, or boot-image caches. If recovery through `/data/dalvik-cache/` is not appropriate, rebuild and deploy a full image from a fresh AOSP environment:
+
+```bash
+bash -c '
+set -u
+full_build_log="$(mktemp "${TMPDIR:-/tmp}/build-full-services.XXXXXX.log")"
+image_artifact="out/target/product/vsoc_x86_64/system.img"
+printf "full build log: %s\n" "$full_build_log"
+(
+  source build/envsetup.sh >/dev/null 2>&1 &&
+  lunch aosp_cf_x86_64_phone-trunk_staging-userdebug >/dev/null 2>&1 &&
+  m
+) >"$full_build_log" 2>&1 &
+full_build_pid=$!
+while kill -0 "$full_build_pid" 2>/dev/null; do
+  tail -n 20 "$full_build_log"
+  sleep 10
+done
+wait "$full_build_pid"
+full_build_rc=$?
+if [[ "$full_build_rc" -ne 0 ]]; then
+  tail -n 200 "$full_build_log" >&2
+  exit "$full_build_rc"
+fi
+grep -Fq "#### build completed successfully" "$full_build_log" || exit 1
+[[ -f "$image_artifact" ]] || exit 1
+' || exit $?
+cvd fleet || exit $?
+cvd_group="${CVD_GROUP:?Set CVD_GROUP to the explicitly confirmed group from cvd fleet}"
+cvd --group_name="$cvd_group" stop || exit $?
+cvd --group_name="$cvd_group" start || exit $?
+```
+
+The group selector placement above is the local Cuttlefish `cvd [selectors] command` form. Never infer a group when multiple devices may exist.
+
+## Check dependencies and behavior
+
+- Run `m update-api` when a change affects a public or System API.
+- Update and build SELinux policy when the service registration or access contract requires it; a jar-only change cannot satisfy that dependency.
+- Treat build success as compilation evidence, not correctness evidence. For whole-feature delivery, run the applicable `features/<feature>/verify-*.sh` scripts and require exact `RESULT PASS` with exit 0; apply the requirement-level acceptance below to individual tasks.
+
+## Execution scope and acceptance
+
+Read this skill before the routed source change; reading it does not execute every command. Requirement clarification and planning do not start builds. Select build commands, deployment actions and acceptance checks separately according to the current authorized task. Calling intent-implement does not by itself authorize device deployment, restart or data cleanup. Use the confirmed device/CVD group and retain the existing device protections.
+
+Read the active feature instructions and run its branch checker before source writes; repeat before later writes not covered by hooks. Record the affected repository subset, build target, artifacts, applicable checks and environment dependencies in the current requirement document. Serialize builds sharing one `out/`, and operations sharing a device or CVD group; the main agent owns shared planning documents.
+
+Complete a requirement against its agreed acceptance and necessary regressions; independent review is required only when requested by the user or project rules. Keep other unfinished requirements visible without blocking an already accepted requirement. Whole-feature delivery requires all requirements plus the full `features/<feature>/verify-*.sh` acceptance: exact `RESULT PASS`, exit 0, no required SKIP. An exploration result `RESULT INCOMPLETE` with exit 0 is incomplete. Report planning, offline Harness checks, compilation, requirement delivery and device acceptance separately; investigate relevant failures instead of retroactively excluding checks. If required environment or review is unavailable, report partial results and the next concrete operation.

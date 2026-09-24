@@ -14,7 +14,7 @@ done
 repo_root="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 cd -- "$repo_root" || quality_protocol_error 'cannot enter repository root'
 quality_list_shell_files() {
-  find . -path './.git' -prune -o -path './.spec' -prune -o -type f -print0 \
+  find . -path './.git' -prune -o -type f -print0 \
     | while IFS= read -r -d '' path; do
       IFS= read -r first <"$path" || first=
       [[ "$path" == *.sh || "$first" == '#!/usr/bin/env bash' || "$first" == '#!/bin/bash' ]] && printf '%s\0' "${path#./}"

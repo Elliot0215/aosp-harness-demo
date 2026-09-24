@@ -1,7 +1,7 @@
 ---
 tags: [codex, android, aosp, harness, 上下文工程, repository-skills]
 created: 2026-07-22
-updated: 2026-09-08
+updated: 2026-09-20
 source: codex
 ---
 
@@ -18,6 +18,8 @@ source: codex
 3. 验证闭环回答“什么证据足以宣布完成”。
 
 本文会持续区分三种性质：**官方文档化行为/能力**是原文所引 Codex 文档描述的产品行为或承载面，不把它扩大成跨版本、跨表面的无条件保证；**Demo 选择**是本仓为了落地这些能力而做的实现；**真实 AOSP 建议**是迁移到生产树时应进一步采用的工程做法。三者不能互相冒充。本文的实现说明以仓库内脚本为准；外部产品资料保留为设计背景，客户端版本相关行为应在部署环境中另行核对。
+
+桌面 App 接入补充：下文 wrapper 启动示例面向 CLI。App 先执行共享的 `prepare-feature`，再以源码树根新建任务；配置中的生命周期入口为 `session-lifecycle.sh`，恢复任务时校验原快照。完整流程及离线与 App 验收边界见 [Codex README](../codex/README.md#codex-appgui接入)。
 
 ## 一、问题：为什么 Codex 在整机源码树上仍需要 Harness
 
@@ -87,7 +89,7 @@ AOSP 构建常见的错误并非命令写错，而是监督方式写错：
 | `AGENTS.md` | 启动时构建指令链，**once per run**；先 global，再从 project root 走到 current working directory | wrapper 在启动 Codex 前把根链接指到当前 feature | 所有入口都经过 wrapper，不依赖会话内热切换 |
 | project config | 受信任项目可加载根到 cwd 的 `.codex/config.toml` 层，近处优先 | demo 没有增加项目 config，hooks 单独放在 JSON | 用户或管理员配置 root markers；项目设置最小化并审查 |
 | repository skills | 从 `.agents/skills` 发现；初始 skill 列表受上下文预算限制，选中后再读完整 `SKILL.md` | 两个窄 skill，feature `AGENTS.md` 显式路由 | 按稳定流程拆分，避免把 feature 事实复制进 skill |
-| hooks | `hooks.json` 或 inline config；项目 hook 需要信任，`/hooks` 可审查 | `SessionStart` 记录快照，`UserPromptSubmit` 查漂移 | hook 做机械 guardrail，不承担首次上下文选择 |
+| hooks | `hooks.json` 或 inline config；项目 hook 需要信任，`/hooks` 可审查 | `startup` 建立快照，恢复与 `UserPromptSubmit` 查漂移 | hook 做机械 guardrail，不承担首次上下文选择 |
 | subagents | 可把独立、嘈杂工作隔离并汇总，代价是额外 token | 使用子代理任务卡传递局部接口 | 读多写少优先并行；写冲突和共享设备操作串行化 |
 | approvals / sandbox | sandbox 定义技术边界，approval 决定何时暂停或请求越界 | 文档与脚本都不假设拥有设备或树外权限 | 使用最小写范围和最窄批准；指导不是授权 |
 
@@ -121,7 +123,7 @@ skill 有两种选择方式：
 - 显式：提示中写 `$skill-name`，或在 CLI / IDE 使用 `/skills`；
 - 隐式：任务与 skill 的 `description` 匹配时，Codex可以选择它。
 
-这也说明 `description` 是隐式路由的公开接口，应该写清触发条件与边界。当前官方文档**没有已文档化的 `paths:` 路径触发契约**。本仓 Claude Code demo 的 skill frontmatter 虽然含 `paths`，迁移到 Codex 时不能假定“读到某个 glob 就必然激活”。Codex demo 改为标准 `name`/`description`，再由 feature `AGENTS.md` 对关键路径写显式 `$build-services-jar` 和 `$build-sepolicy` 路由。
+这也说明 `description` 是隐式路由的公开接口，应该写清触发条件与边界。当前官方文档**没有已文档化的 `paths:` 路径触发契约**。本仓当前 Claude Code 与 Codex demo 均使用标准 `name`/`description`，不保留 `paths`；不能假定“读到某个 glob 就必然激活”。Codex 由 feature `AGENTS.md` 对关键路径写显式 `$build-services-jar` 和 `$build-sepolicy` 路由。
 
 ### 2.4 Hooks：生命周期 guardrail，不是指令链热更新器
 
@@ -328,11 +330,11 @@ exec codex "$@"
 {
   "hooks": {
     "SessionStart": [{
-      "matcher": "startup",
-      "hooks": [{"type": "command", "command": "./.codex/hooks/session-start.sh"}]
+      "matcher": "^(startup|resume|clear|compact)$",
+      "hooks": [{"type": "command", "command": "./.codex/hooks/session-lifecycle.sh"}]
     }],
     "UserPromptSubmit": [{
-      "hooks": [{"type": "command", "command": "./.codex/hooks/check-branch-drift.sh"}]
+      "hooks": [{"type": "command", "command": "./.codex/hooks/session-lifecycle.sh"}]
     }]
   }
 }
@@ -348,7 +350,7 @@ ${TMPDIR:-/tmp}/aosp-codex-harness-$UID/<session_id>.feature
 
 可用 `CODEX_HARNESS_STATE_DIR` 覆盖默认目录。目录权限被收紧为 `0700`，快照为 `0600`。`check-branch-drift.sh` 在每次 `UserPromptSubmit` 比较快照与当前 feature；相同则退出 0 且零输出，不同则返回 `"continue": false`、`stopReason` 和重启提示。输入非法、快照缺失或不安全、当前 feature 无法确认时也会阻断，不会默认为一致。
 
-配置中的 SessionStart matcher 仅为 `startup`，恢复已有会话不会靠这个配置重新写基线。当前没有 SessionEnd hook，也没有自动删除会话快照的逻辑；恢复所需状态与历史文件清理需另外管理。
+配置中的 SessionStart matcher 覆盖 `startup/resume/clear/compact`。`session-lifecycle.sh` 先校验任务根目录、已准备的上下文链接及涉及仓分支；仅新任务 startup 建立快照，已有快照及恢复任务只做一致性检查，缺失状态时阻断。当前没有 SessionEnd hook，也没有自动删除会话快照的逻辑；恢复所需状态与历史文件清理需另外管理。
 
 这个 hook 的检测范围有意很窄：它只比较 active feature token。当前 token 来自 `detect_feature` 找到的第一个可用锚点仓，找不到锚点分支时才 fallback 到 `CURRENT_FEATURE`。`UserPromptSubmit` 不会持续重跑 `repos.tsv`，因此只要 active token 不变，它不能发现非锚点仓的分支漂移，也不能替代完整涉及仓检查。
 
@@ -568,7 +570,7 @@ verifier 最终只有三种严格结论：
 - `RESULT FAIL`：至少一个 FAIL，退出非零；
 - `RESULT INCOMPLETE`：没有 FAIL 但存在 SKIP，默认退出非零。
 
-`--allow-skip` 只允许与 `--demo` 同用；真实模式传入它会以退出码 2 拒绝。demo 中它可以输出 `RESULT PASS (SKIP allowed)`，但不能作为交付证据。严格模式的 FAIL 和 INCOMPLETE 均退出 1，收工标准是精确的 `RESULT PASS` 且退出码为 0。
+`--allow-skip` 只允许与 `--demo` 同用；真实模式传入它会以退出码 2 拒绝。demo 中有 SKIP 时输出 `RESULT INCOMPLETE` 并退出 0，仍不能作为验收通过。严格模式的 FAIL 和 INCOMPLETE 均退出 1，整个 feature 交付标准是精确的 `RESULT PASS` 且退出码为 0。
 
 ### 6.4 基线必须显式或可解释
 
@@ -677,7 +679,7 @@ wrapper 与 hooks 只负责入口和事件检查，不会自动执行整条构�
 | --- | --- | --- | --- |
 | 根指引 | 根 `CLAUDE.md` 指向 feature `CLAUDE.md` | 根 `AGENTS.md` 指向 feature `AGENTS.md`，启动发现 once per run | 重写指引发现与优先级说明，不做字符串替换 |
 | skill 目录 | `.claude/skills` | `.agents/skills` | 将流程迁到 Codex repository skill 位置 |
-| skill 路径假设 | 示例 frontmatter 使用 `paths` 并声称 glob 激活 | 当前公开契约按显式 `$skill` 或 `description` 隐式选择 | 删除 `paths` 依赖，在 AGENTS 中显式 route 关键流程 |
+| skill 路径假设 | 早期示例曾使用 `paths` 并声称 glob 激活；当前 Claude 示例已移除 | 当前公开契约按显式 `$skill` 或 `description` 隐式选择 | 删除 `paths` 依赖，在 AGENTS 中显式 route 关键流程 |
 | hook 配置 | `.claude/settings.json`，命令引用 `${CLAUDE_PROJECT_DIR}` | `.codex/hooks.json` 或 inline `[hooks]`，使用 Codex 事件 schema | 按 Codex 字段重写并通过 `/hooks` 信任审查 |
 | 启动 hook | 无 matcher，每次收到 SessionStart 都写快照并检查软链 | 仅 `startup` 写会话快照 | 首次上下文选择留在 wrapper 之前 |
 | 快照生命周期 | TMPDIR 下共享单文件，合法 SessionEnd 后删除 | 按 `session_id` 隔离，可配置状态目录，无自动清理 | 分别设计恢复、并发和清理行为 |
@@ -826,3 +828,9 @@ bash scripts/check.sh --ci
 - [Advanced configuration](https://learn.chatgpt.com/docs/config-file/config-advanced)
 - [Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)
 - [Developer commands](https://learn.chatgpt.com/docs/developer-commands)
+
+### intent 协作与分层验收
+
+当前示例按 [协作约定](../skills/build-aosp-harness/references/intent-cooperation.md) 在 feature 内使用 `.intent/` 存放新规划，保留已有文档原位。小需求依据事先约定的自身验收与必要回归交付，独立审查仅在用户要求或项目规则要求时成为完成条件；整个 feature 仍需全部需求和严格验证最终 `RESULT PASS`、退出 0。本文的整体 PASS 要求用于 feature 交付，不作为澄清、规划或其他独立小需求的完成条件。
+
+`--demo --allow-skip` 有跳过时输出 `RESULT INCOMPLETE`、退出 0；严格模式仍非零，失败优先于跳过。离线演示不证明真实客户端调用、Android 编译或设备行为。规划不自动启动构建，读取 build skill 不自动授权部署；worker 使用明确仓路径范围，共享构建目录和设备串行安排。

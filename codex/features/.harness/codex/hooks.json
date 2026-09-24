@@ -2,10 +2,10 @@
   "description": "Select and guard the active AOSP feature context.",
   "hooks": {
     "SessionStart": [{
-      "matcher": "startup",
+      "matcher": "^(startup|resume|clear|compact)$",
       "hooks": [{
         "type": "command",
-        "command": "./.codex/hooks/session-start.sh",
+        "command": "./.codex/hooks/session-lifecycle.sh",
         "timeout": 10,
         "statusMessage": "Recording the active AOSP feature"
       }]
@@ -13,7 +13,7 @@
     "UserPromptSubmit": [{
       "hooks": [{
         "type": "command",
-        "command": "./.codex/hooks/check-branch-drift.sh",
+        "command": "./.codex/hooks/session-lifecycle.sh",
         "timeout": 10,
         "statusMessage": "Checking AOSP feature consistency"
       }]

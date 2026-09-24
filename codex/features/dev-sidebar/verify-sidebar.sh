@@ -325,7 +325,7 @@ elif ((skip_count > 0 && allow_skip == 0)); then
   echo 'RESULT INCOMPLETE'
   exit 1
 elif ((skip_count > 0)); then
-  echo 'RESULT PASS (SKIP allowed)'
+  echo 'RESULT INCOMPLETE'
 else
   echo 'RESULT PASS'
 fi

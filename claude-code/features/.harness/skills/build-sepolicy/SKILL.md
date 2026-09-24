@@ -1,14 +1,12 @@
 ---
 name: build-sepolicy
 description: 新增/修改系统服务的 SELinux 策略 —— 改 system/sepolicy 时用（service_contexts + .te 三件套）
-paths:
-  - "system/sepolicy/**"
 ---
 
 <!-- DEMO —— ② 流程层示例 skill。物理源位于 features/.harness/skills/，
-     经树根 .claude 软链暴露，paths 命中 system/sepolicy/** 时才可见。 -->
+     经树根 .claude 软链暴露，由 feature 指令显式选择并读取。 -->
 
-# build-sepolicy（② 流程：改 sepolicy 时激活）
+# build-sepolicy（② 流程：修改 sepolicy 前显式读取）
 
 新增系统服务后**必须**同步 SELinux 策略，否则服务注册/被访问时 `avc: denied`，服务起不来。这是 CLAUDE.md 六条硬约束之一。
 
@@ -61,3 +59,11 @@ grep -Fq sidebar "$device_output" || {
 trap - EXIT
 unlink "$device_output"
 ```
+
+## Execution scope and acceptance
+
+Read this skill before the routed source change; reading it does not execute every command. Requirement clarification and planning do not start builds. Select build commands, deployment actions and acceptance checks separately according to the current authorized task. Calling intent-implement does not by itself authorize device deployment, restart or data cleanup. Use the confirmed device/CVD group and retain the existing device protections.
+
+Read the active feature instructions and run its branch checker before source writes; repeat before later writes not covered by hooks. Record the affected repository subset, build target, artifacts, applicable checks and environment dependencies in the current requirement document. Serialize builds sharing one `out/`, and operations sharing a device or CVD group; the main agent owns shared planning documents.
+
+Complete a requirement against its agreed acceptance and necessary regressions; independent review is required only when requested by the user or project rules. Keep other unfinished requirements visible without blocking an already accepted requirement. Whole-feature delivery requires all requirements plus the full `features/<feature>/verify-*.sh` acceptance: exact `RESULT PASS`, exit 0, no required SKIP. An exploration result `RESULT INCOMPLETE` with exit 0 is incomplete. Report planning, offline Harness checks, compilation, requirement delivery and device acceptance separately; investigate relevant failures instead of retroactively excluding checks. If required environment or review is unavailable, report partial results and the next concrete operation.

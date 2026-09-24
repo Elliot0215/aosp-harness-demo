@@ -170,7 +170,7 @@ if [ "$skip" -gt 0 ] && [ "$ALLOW_SKIP" -eq 0 ]; then
   exit 1
 fi
 if [ "$skip" -gt 0 ]; then
-  echo "RESULT PASS (SKIP allowed)"
+  echo "RESULT INCOMPLETE"
 else
   echo "RESULT PASS"
 fi

@@ -120,7 +120,7 @@ test "$strict_rc" -ne 0
 grep -Fq 'RESULT INCOMPLETE' <<<"$strict_output"
 
 allow_output="$(DEMO_APP_INSTALLED=0 "$ROOT/features/dev-sidebar/verify-sidebar.sh" --demo --allow-skip)"
-grep -Fq 'RESULT PASS (SKIP allowed)' <<<"$allow_output"
+grep -Fq 'RESULT INCOMPLETE' <<<"$allow_output"
 
 # crash 检查必须有时间基线：基线前的历史记录忽略，基线后的记录判 FAIL。
 old_crash_output="$(DEMO_CRASH_LOG='100.000 1 1 F AndroidRuntime: FATAL old crash' \

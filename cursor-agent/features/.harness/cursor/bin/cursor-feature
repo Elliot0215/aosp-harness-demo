@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd -P)"
+ROOT="${HARNESS_ROOT:-$DEFAULT_ROOT}"
+
+dry_run=0
+if [[ "${1:-}" == '--dry-run' ]]; then
+  dry_run=1
+  shift
+fi
+
+HARNESS_ROOT="$ROOT" "$SCRIPT_DIR/prepare-feature"
+if [[ "$dry_run" -eq 1 ]]; then
+  exit 0
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --worktree | --worktree=* | -w)
+      echo "error: 拒绝 --worktree；AOSP 树根通常不是单一 Git 仓，不能用 Cursor CLI worktree 复制整机树。Cursor Agent 未启动。" >&2
+      exit 1
+      ;;
+  esac
+done
+
+resolve_cursor_agent() {
+  local help
+  if [[ -n "${CURSOR_AGENT_BIN:-}" ]]; then
+    printf '%s\n' "$CURSOR_AGENT_BIN"
+    return 0
+  fi
+  if command -v cursor-agent >/dev/null 2>&1; then
+    printf '%s\n' cursor-agent
+    return 0
+  fi
+  if command -v agent >/dev/null 2>&1; then
+    help="$(agent --help 2>/dev/null || true)"
+    if grep -Fq 'Start the Cursor Agent' <<<"$help"; then
+      printf '%s\n' agent
+      return 0
+    fi
+  fi
+  echo 'error: 未找到 Cursor Agent CLI。请安装 cursor-agent；不要把 PATH 上其他产品的 agent 当作 Cursor 入口。' >&2
+  return 1
+}
+
+client="$(resolve_cursor_agent)" || exit 1
+
+has_workspace=0
+for arg in "$@"; do
+  case "$arg" in
+    --workspace | --workspace=*)
+      has_workspace=1
+      ;;
+  esac
+done
+
+cd "$ROOT"
+if [[ "$has_workspace" -eq 1 ]]; then
+  exec "$client" "$@"
+fi
+exec "$client" --workspace "$ROOT" "$@"

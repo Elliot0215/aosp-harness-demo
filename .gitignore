@@ -1,2 +1,6 @@
 # Local isolated development worktrees.
 .worktrees/
+.codesearch.db/
+.zcode/
+.zcodeignore
+.github/

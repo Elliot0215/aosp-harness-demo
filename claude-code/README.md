@@ -76,7 +76,7 @@ rg 'SidebarService|SidebarFlinger' .                # 导航基线：rg + 源码
 | 层 | Demo 落地物 | 文中章节 |
 |---|---|---|
 | ① 上下文 | `features/install-harness.sh` + `.claude/bin/claude-feature` + `CLAUDE.md` 软链 + hooks | 第五节 |
-| ② 流程 | `features/.harness/skills/build-*/SKILL.md`（经 `.claude` 暴露，`paths` glob 激活） | 第六节 |
+| ② 流程 | `features/.harness/skills/build-*/SKILL.md`（经 `.claude` 暴露，由 feature 指令显式读取） | 第六节 |
 | ③ 验证闭环 | `features/dev-sidebar/verify-sidebar.sh` | 第七节 |
 
 > **导航不单独成层**：本方案不配任何 LSP，导航一律 `rg` + 源码阅读。理由见文中第四节末「不采纳一：LSP」与第九节——clangd 单次查询确实快，但整机树规模下后台索引建不完，`findReferences` 会给出**不完整却不自知**的答案，比 `rg` 吵闹但完整的结果更危险。
@@ -96,3 +96,11 @@ Demo 的 `.claude/tests/test-link-migration-safety.sh`（物理源在 `features/
 ## 子代理原则
 
 只读 Explore/Plan 不注入整份 feature CLAUDE.md。派发 prompt 只提供：目标、允许搜索的路径、会改变结论的关键事实、只读约束、期望输出。只有修改、构建或部署代理才携带相关硬约束。Claude Code 内建 Explore/Plan 会跳过 CLAUDE.md，因此范围和关键事实必须显式写进任务卡。
+
+## 与 intent 协作
+
+当前 feature 指令中包含完整协作规则。新规划默认放在 `features/dev-sidebar/.intent/`（`roadmap.md`、固定编号的需求 Markdown、实际审查的逐轮 `review/` 记录）；用户指定和已有文档位置优先，原位续用。主 agent 可更新这些规划资料，业务源码仍受 `repos.tsv` 限定。修改源码前读取实际流程 skill，并按 hook 覆盖范围重新检查分支；不自动切换 feature 或分支。
+
+小需求满足事先明确的自身验收与必要回归即可交付；独立审查仅在用户要求或项目规则要求时成为完成条件。整个 feature 须全部需求和 `verify-sidebar.sh` 严格通过：最终 `RESULT PASS` 且退出 0。`RESULT INCOMPLETE` 在探索模式返回 0 仍是未完成；规划、Harness 离线检查、编译和设备验收分别报告。读取 skill 不代表运行其中所有命令，设备操作遵循已有授权；同一 out/、设备或 CVD 组串行使用。
+
+先独立安装 intent 并确认当前客户端可见，再显式调用 `/intent-roadmap 为 dev-sidebar 规划路线图`、`/intent-plan features/dev-sidebar/.intent/001-需求名称.md` 或 `/intent-implement features/dev-sidebar/.intent/001-需求名称.md`；需要审查时调用 `/intent-review`。技能不会自动进入下一阶段。已有需求也可交给 build-aosp-harness 引用后接入。详见 [完整协作方法](../skills/build-aosp-harness/references/intent-cooperation.md)。

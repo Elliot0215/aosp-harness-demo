@@ -2,12 +2,12 @@
 
 ## 项目结构与模块组织
 
-本仓库包含两个独立的 AOSP Harness 教学示例，源码目录仅提供占位文件：
+本仓库包含四套独立的 AOSP Harness 教学示例，源码目录仅提供占位文件：
 
-- `claude-code/` 和 `codex/`：各客户端的启动封装、hooks、skills 和可运行示例。修改各自 `features/.harness/` 下的实际源文件，保留安装生成的符号链接。
+- `claude-code/`、`codex/`、`cursor-agent/` 和 `zcode/`：各客户端的启动封装、hooks、skills 和可运行示例。修改各自 `features/.harness/` 下的实际源文件，保留安装生成的符号链接。Cursor 与 ZCode 示例是独立适配器，不要把 `.codex` 改名为 `.cursor`，也不要复用 Codex 的 `hooks.json` 结构充当 ZCode 的 `.zcode/config.json`。
 - 各示例的 `features/dev-sidebar/`：功能说明、`repos.tsv`、分支检查和验证脚本；`CURRENT_FEATURE` 指定当前功能。
 - 各示例的 `frameworks/base/` 和 `frameworks/native/`：占位源码。
-- `tests/`：仓库级回归测试；客户端回归测试位于 `codex/tests/` 和 `claude-code/features/.harness/tests/`。
+- `tests/`：仓库级回归测试；客户端回归测试位于 `codex/tests/`、`cursor-agent/tests/`、`zcode/tests/` 和 `claude-code/features/.harness/tests/`。
 - `scripts/`：质量检查入口；`docs/`：设计文档。
 
 ## 构建、测试与开发命令
@@ -16,6 +16,8 @@
 
 - `bash claude-code/run-demo.sh`：演示 Claude Code 上下文选择与验证流程，并运行回归测试。
 - `bash codex/run-demo.sh`：安装 Codex 入口、演示工作流并运行回归测试。
+- `bash cursor-agent/run-demo.sh`：安装 Cursor Agent 入口、演示工作流并运行回归测试。
+- `bash zcode/run-demo.sh`：安装 ZCode 入口、演示工作流并运行回归测试。
 - `bash scripts/check.sh --offline`：检查 shell 语法、回归测试、设备保护和文档。
 - `bash scripts/check.sh --ci`：额外运行固定版本的 ShellCheck 0.11.0、shfmt 3.14.0 和 gitleaks 8.30.1。
 - `bash scripts/check-docs.sh`：检查文档入口。

@@ -1,15 +1,21 @@
 ---
 name: build-aosp-harness
-description: 根据用户的 Android/AOSP 开发需求，在源码树中新建或扩展 agent Harness，落地功能上下文、涉及仓与分支检查、客户端启动入口、构建流程 skills 和可执行验收。适用于“搭建 AOSP harness”“为某个系统功能配置 Codex/Claude Code 开发环境”“把开发需求接入现有 harness”；单纯实现业务功能或运行已有编译流程时不使用。
+description: 根据用户的 Android/AOSP 开发需求，在源码树中新建或扩展 agent Harness，落地功能上下文、涉及仓与分支检查、客户端启动入口、构建流程 skills 和可执行验收。适用于“搭建 AOSP harness”“为某个系统功能配置 Codex App/CLI、Claude Code、Cursor Agent、ZCode 开发环境”“把开发需求接入现有 harness”；单纯实现业务功能或运行已有编译流程时不使用。
 ---
 
 # 根据需求搭建 AOSP Harness
 
 把用户需求转换成能运行、能检查、能继续开发的 Harness。交付真实文件和离线验证证据；除非用户只要方案，否则不要停在架构说明。Harness 的完成与 Android 功能实现、编译通过、真机验收分别报告。
 
+Codex App 搭建必须同时交付 App 接入证据；仅离线通过不能称为 App 接入完成。
+
 ## 1. 先确定开发契约
 
 先读取目标目录适用的 `AGENTS.md` / `CLAUDE.md`、现有 Harness 和工作区状态，使用 `rg`、Git 和源码阅读补齐信息。AOSP 树根可能不是 Git 仓；检查各 project 的 `.git`，不要用树根的一次 `git status` 代表整棵树。
+
+先区分客户端与使用入口。用户指定 Codex App/GUI 时，必须读取 [codex-app.md](references/codex-app.md) 并执行准备、接入和实际 App 验收；只说 Codex 且没有既有客户端约定时，默认采用 App 流程并告知用户。明确指定 CLI 或其他客户端时保留其流程，不强制迁移到 App。
+
+用户提供已有 intent 路线图或小需求时，先读取并引用其目标、边界和已确认条件，不重新询问已有决定。用户明确要求协作时，读取唯一的 AOSP 适配规范 [intent-cooperation.md](references/intent-cooperation.md)，把规划位置、当前 intent 技能入口、执行约束和分层验收写进 feature 上下文；不自动安装 intent 或进入下一阶段。
 
 形成以下简短记录，放进后续 feature 上下文，而不是要求用户逐项填表：
 
@@ -50,19 +56,20 @@ description: 根据用户的 Android/AOSP 开发需求，在源码树中新建�
 │       ├── AGENTS.md 或 CLAUDE.md
 │       ├── repos.tsv
 │       ├── check-branch.sh
-│       └── verify-<feature>.sh
+│       ├── verify-<feature>.sh
+│       └── .intent/             # 明确协作时的新规划默认目录，已有资料原位续用
 └── 客户端标准入口与当前 feature 上下文入口
 ```
 
 Harness 默认与 AOSP manifest projects 分开管理，避免进入无关的 Gerrit 提交或构建输入。沿用用户已有的版本管理方式；不要为搭建自动改 manifest、批量切分支或提交代码。
 
-客户端入口使用当前安装版本支持的形式；先检查本地配置、CLI 帮助和实现，仍不明确时查对应官方文档。复用本仓库示例时，阅读 [adapt-examples.md](references/adapt-examples.md)，按所选客户端读取源文件；不要把两套配置互换名称后混用。
+客户端入口使用当前安装版本支持的形式；先检查本地配置、CLI 帮助和实现，仍不明确时查对应官方文档。复用本仓库示例时，阅读 [adapt-examples.md](references/adapt-examples.md)，按所选客户端读取源文件；不要把 Codex、Claude Code、Cursor Agent、ZCode 四套配置互换名称后混用。Cursor 必须使用 `AGENTS.md`、`.cursor/hooks.json` 和独立 `features/.harness/cursor` 适配器，不能把 `.codex` 改名为 `.cursor`；ZCode 必须使用 `.zcode/config.json` 的 `hooks.events`（显式 `enabled: true`）和退出码 2 阻断协议，不能复用 Codex 的 `hooks.json` 外层结构或 `continue: false` JSON。
 
 上下文层必须满足这些可检查的行为：
 
 1. `repos.tsv` 是涉及仓/分支的单一事实源；检查器拒绝缺仓、非法仓、detached HEAD、分支不符或清单解析失败。沿用此模板时 feature 目录名与清单中的预期分支一致。
-2. wrapper 在启动客户端前解析 feature、验证涉及仓、选定上下文，再从树根启动；提供 `--dry-run` 以验证选择流程而不启动客户端。注意此模式仍可能更新上下文链接。
-3. 会话中的 feature 或涉及仓分支发生漂移时，不继续用旧上下文修改源码。按客户端支持的事件实现检查，并说明检查发生在启动、提示提交还是写操作之前；提示提交 hook 不能覆盖同一轮任务中的后续漂移。未覆盖的写操作前重新运行分支检查。恢复方式是重新经过 wrapper 启动，不承诺会话内热重载；恢复旧会话也需验证快照与上下文有效。示例现有边界见适配参考，不把这些目标契约当作模板已经实现的能力。
+2. CLI wrapper 在启动客户端前解析 feature、验证涉及仓、选定上下文，再从树根启动；提供 `--dry-run`，但说明它仍可能更新上下文链接。Codex App 与 Cursor 桌面 IDE 使用独立 `prepare-feature` 共用准备逻辑，不启动 CLI；完成准备后才从目标源码根新建 App 任务或 Agent 对话。Cursor 还要打开 harness 根并信任工作区，不要自动加 `--trust`；切换 feature 后不要恢复旧对话。
+3. 会话中的 feature 或涉及仓分支发生漂移时，不继续用旧上下文修改源码。按客户端支持的事件实现检查，并说明检查发生在启动、提示提交还是写操作之前；提示提交 hook 不能覆盖同一轮任务中的后续漂移。未覆盖的写操作前重新运行分支检查。CLI 恢复方式是重新经过 wrapper 启动；App 则执行准备入口后新建任务，不承诺会话内热重载；恢复旧会话也需验证快照与上下文有效。示例现有边界见适配参考，不把这些目标契约当作模板已经实现的能力。
 4. 公共源文件留在 `features/.harness/`；安装器暴露标准入口。重复安装应成功；冲突的普通文件、目录、错误链接应保留原样并报错。失败时只回滚本次创建的内容。
 
 已有根指令必须保留有效约束。遇到入口冲突，先准备合并稿和迁移差异；只有覆盖或迁移超出已有授权时才请用户确认，不用强制软链命令绕过保护。运行示例 wrapper 前检查其迁移行为。
@@ -70,6 +77,8 @@ Harness 默认与 AOSP manifest projects 分开管理，避免进入无关的 Ge
 ## 4. 为实际改动补齐流程层
 
 只提供需求会用到的流程 skill；feature 指令显式写清“什么改动 → 读取哪个 skill → 运行哪个验证入口”，不要依赖未经验证的路径自动触发。
+
+读取流程不等于执行全部步骤：澄清和规划不触发构建，构建、部署、验收分别按当前授权执行；调用 `intent-implement` 本身不扩大设备操作范围。
 
 每个流程 skill 应包含：适用范围、构建前置条件、真实命令及日志位置、产物/分区、何时需要部署、验证入口及恢复条件。复用用户现有构建工具；只有对应 skill 已安装且适配当前项目时才路由过去，否则提供本地可执行流程，避免悬空依赖。
 
@@ -83,7 +92,9 @@ Harness 默认与 AOSP manifest projects 分开管理，避免进入无关的 Ge
 
 为真实设备新建或修改 push、整组部署、回滚及重启等待工具时，先读 [deployment-transactions.md](references/deployment-transactions.md)，落实不可变备份、原子替换、失败状态和故障注入。示例的直接 push 命令不具备这些能力，不能作为生产部署入口照搬。
 
-`verify-<feature>.sh` 实现需求对应的断言，区分数据采集失败、行为失败和环境未就绪。先保留查询退出码，再按字段边界精确匹配服务/包名；输出含目标但查询失败仍是 FAIL。避免大输出经 `grep -q` 提前关管道后被 `pipefail` 误判。缺少必要数据不能当作空结果通过。把模拟输入限制在明确的 `--demo` 或测试入口，真实验证不能回退到模拟数据。
+小需求按事先约定的自身验收与必要回归交付；独立审查仅在用户要求或项目规则要求时成为完成条件。整个 feature 仍需全部小需求与整体验收完成；前项可独立通过，后项未完成如实保留。不能事后排除失败检查，新增相关失败须调查。规划、Harness 离线检查、编译、需求交付、feature 真机验收分别报告。
+
+`verify-<feature>.sh` 实现整个 feature 对应的断言，区分数据采集失败、行为失败和环境未就绪。先保留查询退出码，再按字段边界精确匹配服务/包名；输出含目标但查询失败仍是 FAIL。避免大输出经 `grep -q` 提前关管道后被 `pipefail` 误判。缺少必要数据不能当作空结果通过。把模拟输入限制在明确的 `--demo` 或测试入口，真实验证不能回退到模拟数据。
 
 | 结果 | 语义 | 默认退出码 |
 | --- | --- | --- |
@@ -99,4 +110,4 @@ Harness 默认与 AOSP manifest projects 分开管理，避免进入无关的 Ge
 
 报告生成/修改的关键文件、启动命令、feature 选择方法、已执行验证及结果。分别说明离线 Harness 是否通过、实际构建/真机验证是否执行，以及阻塞它们的具体缺项。
 
-仅搭建的请求，在 Harness 文件可运行且离线检查通过后完成；业务验收的 `INCOMPLETE` 如实保留。若用户还要求实现或真机交付，继续完成授权范围内的后续工作，不能把离线通过作为全部完成。
+仅搭建且不含 App 接入的请求，在 Harness 文件可运行且离线检查通过后完成。Codex App 请求还必须验证目标 App 中的上下文加载、skills 发现与调用、正常恢复以及自动漂移阻断，证据齐全才报告“Codex App 接入完成”。缺事件、信任或实际任务证据时报告“离线 Harness 已通过，App 接入未完成”（仅当离线确实通过），列出缺项和下一步，不能用手动分支检查替代自动阻断验收。交付目标环境的准确项目目录、准备命令、首条验收提示及验收记录，按 App 参考执行。业务验收的 `INCOMPLETE` 如实保留。若用户还要求实现或真机交付，继续完成授权范围内的后续工作，不能把离线通过作为全部完成。

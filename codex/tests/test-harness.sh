@@ -454,10 +454,10 @@ expected = {
     "description": "Select and guard the active AOSP feature context.",
     "hooks": {
         "SessionStart": [{
-            "matcher": "startup",
+            "matcher": "^(startup|resume|clear|compact)$",
             "hooks": [{
                 "type": "command",
-                "command": "./.codex/hooks/session-start.sh",
+                "command": "./.codex/hooks/session-lifecycle.sh",
                 "timeout": 10,
                 "statusMessage": "Recording the active AOSP feature",
             }],
@@ -465,7 +465,7 @@ expected = {
         "UserPromptSubmit": [{
             "hooks": [{
                 "type": "command",
-                "command": "./.codex/hooks/check-branch-drift.sh",
+                "command": "./.codex/hooks/session-lifecycle.sh",
                 "timeout": 10,
                 "statusMessage": "Checking AOSP feature consistency",
             }],
@@ -1258,7 +1258,7 @@ test_sidebar_verifier_demo_results() {
   rc=$?
   set -e
   [[ "$rc" -eq 0 ]] || return 1
-  [[ "$(tail -n 1 <<<"$output")" == 'RESULT PASS (SKIP allowed)' ]] || return 1
+  [[ "$(tail -n 1 <<<"$output")" == 'RESULT INCOMPLETE' ]] || return 1
 
   set +e
   output="$(DEMO_BOOT_COMPLETED=0 DEMO_APP_INSTALLED=0 \
@@ -1941,7 +1941,7 @@ test_operational_readme_contract_and_quick_start() {
     'Codex 仓库 skills 位于 `.agents/skills`'
     '显式 `$skill-name`'
     '任务匹配 `description` 时隐式选择'
-    '本仓库 Claude demo 的 `.claude/skills` 示例使用 `paths` metadata'
+    '本仓库 Claude demo 使用 `.claude/skills` 与 feature 指令显式路由，不设置 `paths` metadata'
     'Codex demo 用 `.codex/hooks.json`'
     '`.codex/config.toml` 中的 inline `[hooks]` tables'
     'Codex hook schema'

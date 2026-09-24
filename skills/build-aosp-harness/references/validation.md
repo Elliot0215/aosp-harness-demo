@@ -24,7 +24,7 @@
 | 实际 hook 配置命令 | 从配置提取命令，带空格树路径下可执行，cwd 和参数正确 |
 | 严格验证全通过 | `RESULT PASS`，退出 0 |
 | 任一行为/查询失败 | `RESULT FAIL`，非零退出；含 SKIP 时仍以 FAIL 为准 |
-| 无失败但有必需 SKIP | `RESULT INCOMPLETE`，默认非零退出 |
+| 无失败但有必需 SKIP | `RESULT INCOMPLETE`，默认非零退出；`--demo --allow-skip` 可退出 0，结论仍 INCOMPLETE |
 | 缺少或非法设备目标 | 真实入口拒绝执行，模拟 ADB 调用日志为空 |
 | 合法设备目标 | 每次模拟 ADB 调用均带同一 `-s` 序列号 |
 | 模拟模式 | 无客户端/设备/编译实际调用，结果明确标记为模拟证据 |
@@ -33,7 +33,7 @@
 
 存在 hook 时区分两类证据：直接喂入 payload 仅验证脚本协议；客户端实际加载、信任和触发是否有效，需要客户端集成证据。未做后者就报告未验证，不能通过离线测试推断 hook 必然生效。
 
-多会话测试包含两棵树使用同一 session 标识的情况，并区分提示提交时与同一轮执行中的漂移。表中是目标验证项，不表示来源 Demo 已覆盖：现有 Codex guard 不检查其他涉及仓、默认状态目录不按树隔离；Claude 的固定快照也不满足多会话隔离。未补齐时报告限制，不把现有测试通过等同于这些能力通过。
+多会话测试包含两棵树使用同一 session 标识的情况，并区分提示提交时与同一轮执行中的漂移。表中是目标验证项，不表示来源 Demo 已覆盖：现有 Codex lifecycle 在 `.repo` 模式检查涉及仓，但默认状态目录仍不按树隔离；Claude 的固定快照也不满足多会话隔离。未补齐时报告限制，不把现有测试通过等同于这些能力通过。
 
 流程命令变化时，提取实际 `SKILL.md` Bash 块，用模拟 `envsetup`、构建工具、ADB/CVD 在默认 Bash（不继承 `errexit`）运行；不要重写一份等价脚本代测。逐步注入失败并检查调用日志，分别验证退出码、成功标记与产物。修改 hook 命令时从实际 JSON 配置执行，以覆盖引号、路径及清理效果；离线模拟不需启动真实客户端。
 
@@ -47,17 +47,27 @@
 
 从仓根执行 `bash scripts/check.sh --offline`。新 shell 采用两空格缩进并保留执行权限；涉及 shell 修改时按仓库要求运行 shfmt / ShellCheck。需要完整 CI 检查时用 `bash scripts/check.sh --ci`，缺固定版本工具要明确报告，不能称为通过。
 
-针对命令块、查询匹配和 hook 配置可运行 `bash tests/test-runtime-contracts.sh`；该测试已包含在离线质量门禁。它覆盖两端 services 部署和验证查询，但构建/CVD 块只测 Codex，真实配置 hook 命令只测 Claude `settings.json`；Claude 部署测试没有 `get-state` 步骤。两端 `check-process-layer` 都只检查 Demo 固定文本，不能填补这些运行覆盖缺口。新 Harness 的测试应指向目标文件和真实配置参数。
+针对命令块、查询匹配和 hook 配置可运行 `bash tests/test-runtime-contracts.sh`；该测试已包含在离线质量门禁。它覆盖 Claude、Codex 与 Cursor Agent 的 services 部署和验证查询；构建/CVD 块测 Codex 与 Cursor；真实配置 hook 命令测 Claude `settings.json` 与 Cursor `.cursor/hooks.json`。Claude 部署测试没有 `get-state` 步骤。三套 `check-process-layer` 都只检查 Demo 固定文本，不能填补这些运行覆盖缺口。Cursor 的 hook **stdin 协议**有离线测试，`tests/test-cursor-app.sh` 覆盖桌面 IDE 的准备入口与快照协议；CLI 与 IDE 的真实事件投递仍是缺项。新 Harness 的测试应指向目标文件和真实配置参数。
 
 若增加或改变仓库级回归覆盖，更新 `tests/COVERAGE.md`。纯 skill 文档增加不需要伪造覆盖变化。
+
+## intent 联动验证
+
+在非 Git 的临时树根创建多个独立 Git project 和两个小需求：前项满足自己的验收，后项未实现。分别保留需求交付与 feature 未完成结论。检查已有文档原位续用、文档与已加载 feature 不同、其他仓分支漂移、共享构建/设备串行，以及缺设备时的部分完成报告；仅当用户或项目规则要求独立审查时，再检查逐仓审查范围和缺少 reviewer 的报告。普通项目及未调用 intent 的 Harness 保持独立可用。静态文字和模拟只证明契约与脚本，四端真实技能发现、调用、上下文、按需审查，以及 Codex App、Cursor 桌面 IDE、ZCode Desktop 的准备与恢复需要另记真实客户端观察；未运行则明确未验证。Cursor IDE 的离线准备测试不能代替信任工作区后的事件投递。
+
+## Codex App 验收
+
+Codex App 请求必须执行 [codex-app.md](codex-app.md) 的离线和真实 App 两级验收。准备入口、正确 cwd、恢复快照及实际配置命令可用隔离目录验证；项目指令自动加载、skills 发现与调用、hooks 信任和实际阻断必须在对应 App 任务中验证。CLI 版本、手工 payload 或代理自行运行检查器均不能替代 App 证据。
+
+无目标 App 任务或必要信任操作未完成时，保留离线结果，明确 App 接入未完成并交付可执行的接续步骤。只有用户明确要求创建任务时才使用任务管理工具，不擅自创建验收任务。skill 本身的文档改进可以通过格式、引用和行为演练交付；它不等于任何目标项目已经完成 App 接入。
 
 ## 交付记录
 
 用简短记录给出：
 
 - 文件：物理源文件、生成入口、feature 名与选择依据。
-- 使用：安装、wrapper `--dry-run`、正常启动、分支检查与验证命令。
+- 使用：安装、CLI wrapper 或 App 准备入口、准确项目目录、新建/恢复任务方式、分支检查与验证命令。App 另附首条验收提示。
 - 证据：执行目录、命令、退出码、最终结果、日志位置；模拟与真实分开。
 - 缺项：未配置参数、尚未实现断言、客户端加载/设备验证是否未执行。
 
-例如“离线 Harness 回归通过；业务验证因尚无设备为 INCOMPLETE，未编译或部署”。只有用户还要求对应业务交付时，这些缺项才属于需要继续完成的本次工作。
+例如“离线 Harness 回归通过；业务验证因尚无设备为 INCOMPLETE，未编译或部署”。只有用户还要求对应业务交付时，业务缺项才属于需要继续完成的本次工作；Codex App 请求中的 App 接入缺项始终属于本次未完成部分。

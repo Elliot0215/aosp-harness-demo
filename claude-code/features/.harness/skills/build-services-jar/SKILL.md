@@ -1,14 +1,12 @@
 ---
 name: build-services-jar
 description: 编译 / 部署 services.jar —— 改 frameworks/base/services 下代码（含 SystemServer 注册系统服务）时用
-paths:
-  - "frameworks/base/services/**"
 ---
 
 <!-- DEMO —— ② 流程层示例 skill。物理源位于 features/.harness/skills/，
      经树根 .claude 软链暴露，避免 features/.claude 造成重复 skill 注册。 -->
 
-# build-services-jar（② 流程：改 services 代码时激活）
+# build-services-jar（② 流程：修改 services 前显式读取）
 
 承载**不随 feature 变**的通用流程；feature 特有内容写在 `features/<分支>/CLAUDE.md` 的对应仓小节，那里一句话指回本 skill（单一事实源，避免两处漂移）。
 
@@ -46,4 +44,12 @@ adb -s "$device_serial" reboot || exit $?
 
 ## 编过 ≠ 改对
 
-build 成功只是第一步。收工前必须跑 `features/<分支>/verify-*.sh` 且全部 PASS 才允许宣布完成。
+build 成功只证明编译通过。整个 feature 交付需运行 `features/<分支>/verify-*.sh` 并严格 PASS；单个小需求遵循下方自身验收条件。
+
+## Execution scope and acceptance
+
+Read this skill before the routed source change; reading it does not execute every command. Requirement clarification and planning do not start builds. Select build commands, deployment actions and acceptance checks separately according to the current authorized task. Calling intent-implement does not by itself authorize device deployment, restart or data cleanup. Use the confirmed device/CVD group and retain the existing device protections.
+
+Read the active feature instructions and run its branch checker before source writes; repeat before later writes not covered by hooks. Record the affected repository subset, build target, artifacts, applicable checks and environment dependencies in the current requirement document. Serialize builds sharing one `out/`, and operations sharing a device or CVD group; the main agent owns shared planning documents.
+
+Complete a requirement against its agreed acceptance and necessary regressions; independent review is required only when requested by the user or project rules. Keep other unfinished requirements visible without blocking an already accepted requirement. Whole-feature delivery requires all requirements plus the full `features/<feature>/verify-*.sh` acceptance: exact `RESULT PASS`, exit 0, no required SKIP. An exploration result `RESULT INCOMPLETE` with exit 0 is incomplete. Report planning, offline Harness checks, compilation, requirement delivery and device acceptance separately; investigate relevant failures instead of retroactively excluding checks. If required environment or review is unavailable, report partial results and the next concrete operation.

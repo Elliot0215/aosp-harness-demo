@@ -68,8 +68,8 @@ bash -c 'source build/envsetup.sh >/dev/null 2>&1 \
 本 feature 在此仓：新增 `services/core/java/com/android/server/sidebar/SidebarService.java`（系统服务，暴露 `ISidebar` AIDL 接口）；`SystemServer.java` 里注册（`ServiceManager.addService("sidebar", ...)`）；新增 `core/java/android/sidebar/ISidebar.aidl`（public/System API 面）。
 
 - **改了 public/System API**（新增 `android.sidebar` 包 + AIDL）→ 必须 `m update-api`，否则 checkapi 挂构建。
-- **新增系统服务** → 必须同步 `system/sepolicy`（见 `build-sepolicy` skill）。
-- 编译/push/验证通用流程见 skill **`build-services-jar`**（Read `services/**` 时自动激活）：单编 `m services`、产物 `services.jar`、push 清单、ART 缓存坑。
+- **新增系统服务** → 必须同步 `system/sepolicy`（修改前显式读取 `.claude/skills/build-sepolicy/SKILL.md`，或使用 `/build-sepolicy`）。
+- 编译/push/验证通用流程见 skill **`build-services-jar`**（修改前显式读取 `.claude/skills/build-services-jar/SKILL.md`，或使用 `/build-services-jar`）：单编 `m services`、产物 `services.jar`、push 清单、ART 缓存坑。
 
 ### frameworks/native
 
@@ -77,4 +77,19 @@ bash -c 'source build/envsetup.sh >/dev/null 2>&1 \
 
 - 纯 native（C++）：导航用 `rg`；`SidebarFlinger` 这类新符号是独特锚点，直接搜即可。
 - 窗口缩放态下的 touch 事件映射若要动，属 input 链路，谨慎评估再改。
-- 编译/push/验证通用流程见对应 native 编译 skill（Read `services/sidebarflinger/**` 时激活）。
+- 本示例没有 native 构建 skill。修改前从目标源码的模块和现有构建入口确定构建、产物与验收方法，记录在小需求中；不能调用不存在的 native skill。
+
+### 与 intent 协作及完成条件
+
+- 从源码树根工作，分别识别各 Git project 根和规划目录；不要用树根的一次 `git status` 代表所有涉及仓。`repos.tsv` 与现有检查器是源码仓范围及分支的事实来源，小需求只记录本次涉及的子集和理由。
+- intent 文档位置依次采用：用户明确指定 → 已有文档位置 → 本 feature 的 `features/dev-sidebar/.intent/` → intent 默认位置。新路线图为 `features/dev-sidebar/.intent/roadmap.md`，展开需求使用固定编号的 `001-需求名称.md` 等 Markdown，实际审查按轮次写入 `features/dev-sidebar/.intent/review/001-需求名称-1.md` 等文件；已有资料原位续用，不搬迁或预建空文件。
+- 每份小需求记录当前 feature、目标与验收、涉及仓子集和路径及理由、构建与验证入口、环境依赖、实际证据和剩余事项；不另建状态文件。主 agent 可更新当前 feature 的上述规划和审查资料，包括明确指定或已有的规划位置；这不扩大业务源码可修改范围。上下文只维护目标摘要、执行约束与文档入口，详细任务和进展维护在原文档中。
+- 每次修改相关源码前读取对应流程 skill，并运行 `./features/dev-sidebar/check-branch.sh`；同轮后续写操作未被 hook 覆盖时重新检查。若需求文档的 feature 与已加载上下文不同，停止依赖旧上下文的写入，按下述启动入口重新准备并新建会话，不自行切换分支或热换上下文。
+- worker 任务卡包含源码根、feature、允许修改的仓及路径、相关约束、验收命令和共享资源。由主 agent 维护共享需求文档；同一 `out/` 的构建、同一设备或 CVD 组的操作串行执行。审查逐仓确定基线，包含相关已提交、未提交及未跟踪实现；基线不可靠时检查明确模块并披露限制。
+- 小需求按事先明确的自身验收和必要回归判断交付；独立审查仅在用户要求或项目规则要求时成为完成条件。缺少已要求的审查、构建环境或必要设备证据时如实报告部分完成。
+- 整个 feature 交付须全部需求完成，并运行 `./features/dev-sidebar/verify-sidebar.sh`，最终精确输出 `RESULT PASS` 且退出 0。其他小需求尚未实现不能阻止已满足自身验收的前项交付，但必须保留 feature 未完成状态。不能事后把失败检查改为“不适用”；相关失败须调查。
+- 规划完成、离线 Harness 可用、编译通过、小需求交付和 feature 真机验收分别报告。`RESULT INCOMPLETE` 即使在 `--demo --allow-skip` 下退出 0，也不是验收通过。
+- 需求澄清、设计和任务规划不触发构建；读取流程只提供当前任务的方法，构建、部署及验收按已授权范围分别执行。调用 `intent-implement` 不扩大设备操作授权，也不自动启动另一 intent 阶段或安装 skills。
+
+- 恢复入口：`.claude/bin/claude-feature`。
+- intent 已独立安装且用户明确选择后，可显式调用 `/intent-roadmap 为 dev-sidebar 规划路线图`；单项规划用 `/intent-plan features/dev-sidebar/.intent/001-需求名称.md`，实现用 `/intent-implement features/dev-sidebar/.intent/001-需求名称.md`，需要审查时用 `/intent-review features/dev-sidebar/.intent/001-需求名称.md`。当前没有实际规划文档时，不把这些示例路径报告为已创建。

@@ -141,14 +141,23 @@ device_safety_run_flag_and_demo_for() {
   CAPTURE_RC=$?
   [[ "$CAPTURE_RC" -eq 0 ]] || device_safety_fail "$name demo allow-skip: expected rc=0"
   grep -Eq '^SKIP  ' "$CAPTURE_OUT" || device_safety_fail "$name demo allow-skip: expected SKIP detail"
-  [[ "$(tail -n 1 "$CAPTURE_OUT")" == 'RESULT PASS (SKIP allowed)' ]] || device_safety_fail "$name demo allow-skip: expected RESULT PASS (SKIP allowed)"
+  [[ "$(tail -n 1 "$CAPTURE_OUT")" == 'RESULT INCOMPLETE' ]] || device_safety_fail "$name demo allow-skip: expected RESULT INCOMPLETE"
   [[ ! -s "$ADB_LOG" ]] || device_safety_fail "$name demo allow-skip: expected zero adb calls"
+  DEMO_APP_INSTALLED=0 DEMO_CRASH_QUERY_FAIL=1 PATH="$DEVICE_SAFETY_FAKE_BIN:$PATH" bash "$path" --demo --allow-skip >"$CAPTURE_OUT" 2>"$CAPTURE_ERR"
+  CAPTURE_RC=$?
+  [[ "$CAPTURE_RC" -ne 0 && "$(tail -n 1 "$CAPTURE_OUT")" == 'RESULT FAIL' ]] || device_safety_fail "$name demo failure and skip: expected nonzero RESULT FAIL"
+  grep -Eq '^SKIP  ' "$CAPTURE_OUT" || device_safety_fail "$name demo failure and skip: expected SKIP detail"
+  [[ ! -s "$ADB_LOG" ]] || device_safety_fail "$name demo failure and skip: expected zero adb calls"
 }
 device_safety_run_claude_flag_demo_matrix() { device_safety_run_flag_and_demo_for claude ./claude-code/features/dev-sidebar/verify-sidebar.sh; }
 device_safety_run_codex_flag_demo_matrix() { device_safety_run_flag_and_demo_for codex ./codex/features/dev-sidebar/verify-sidebar.sh; }
+device_safety_run_cursor_flag_demo_matrix() { device_safety_run_flag_and_demo_for cursor ./cursor-agent/features/dev-sidebar/verify-sidebar.sh; }
+device_safety_run_zcode_flag_demo_matrix() { device_safety_run_flag_and_demo_for zcode ./zcode/features/dev-sidebar/verify-sidebar.sh; }
 device_safety_run_flag_and_demo_matrix() {
   device_safety_run_claude_flag_demo_matrix
   device_safety_run_codex_flag_demo_matrix
+  device_safety_run_cursor_flag_demo_matrix
+  device_safety_run_zcode_flag_demo_matrix
 }
 
 device_safety_extract_device_blocks() {
@@ -361,7 +370,7 @@ device_safety_run_legacy() {
   local test fake
   device_safety_fake_adb_install legacy demo-serial
   fake="$DEVICE_SAFETY_FAKE_BIN"
-  for test in ./claude-code/features/.harness/tests/test-harness.sh ./codex/tests/test-install-harness.sh ./codex/tests/test-harness.sh; do PATH="$fake:$PATH" bash "$test" || device_safety_fail "legacy failed: $test"; done
+  for test in ./claude-code/features/.harness/tests/test-harness.sh ./codex/tests/test-install-harness.sh ./codex/tests/test-harness.sh ./cursor-agent/tests/test-install-harness.sh ./cursor-agent/tests/test-harness.sh ./zcode/tests/test-install-harness.sh ./zcode/tests/test-harness.sh; do PATH="$fake:$PATH" bash "$test" || device_safety_fail "legacy failed: $test"; done
 }
 device_safety_run_all() {
   local scope
@@ -389,6 +398,7 @@ device_safety_register_scope claude-invalid-serial device_safety_run_claude_inva
 device_safety_register_scope claude-valid-serial device_safety_run_claude_valid_serial_matrix
 device_safety_register_scope claude-flag-demo device_safety_run_claude_flag_demo_matrix
 device_safety_register_scope codex-flag-demo device_safety_run_codex_flag_demo_matrix
+device_safety_register_scope cursor-flag-demo device_safety_run_cursor_flag_demo_matrix
 device_safety_register_scope flag-demo device_safety_run_flag_and_demo_matrix
 device_safety_register_scope skill-blocks device_safety_run_skill_blocks
 device_safety_register_scope skill-contract device_safety_run_skill_contract

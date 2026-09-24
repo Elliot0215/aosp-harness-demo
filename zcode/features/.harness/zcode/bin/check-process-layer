@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd -P)"
+ROOT="${HARNESS_ROOT:-$SCRIPT_ROOT}"
+
+fail() {
+  local label="$1"
+  local detail="${2:-validation failed}"
+
+  echo "FAIL  $label: $detail" >&2
+  exit 1
+}
+
+require_file() {
+  local file="$1"
+  local label="$2"
+
+  [[ -f "$file" ]] || fail "$label" "missing $file"
+}
+
+check_frontmatter() {
+  local file="$1"
+  local expected_name="$2"
+  local expected_description="$3"
+  local label="$4"
+
+  if ! awk -v expected_name="$expected_name" \
+    -v expected_description="$expected_description" '
+        NR == 1 { valid = ($0 == "---"); next }
+        NR == 2 { valid = valid && ($0 == "name: " expected_name); next }
+        NR == 3 { valid = valid && ($0 == "description: " expected_description); next }
+        NR == 4 { valid = valid && ($0 == "---"); closed = 1; exit }
+        END { exit !(valid && closed) }
+      ' "$file"; then
+    fail "$label frontmatter" "expected only exact name and description metadata"
+  fi
+}
+
+require_text() {
+  local file="$1"
+  local text="$2"
+  local label="$3"
+
+  if ! grep -Fq -- "$text" "$file"; then
+    fail "$label" "$file is missing '$text'"
+  fi
+}
+
+reject_regex() {
+  local file="$1"
+  local pattern="$2"
+  local label="$3"
+
+  if grep -Eiq -- "$pattern" "$file"; then
+    fail "$label" "$file contains forbidden activation metadata or wording"
+  fi
+}
+
+reject_text() {
+  local file="$1"
+  local text="$2"
+  local label="$3"
+
+  if grep -Fq -- "$text" "$file"; then
+    fail "$label" "$file contains forbidden text '$text'"
+  fi
+}
+
+check_full_build_section() {
+  local file="$1"
+  local start_marker="$2"
+  local label="$3"
+  local section
+
+  section="$(awk -v marker="$start_marker" '
+    index($0, marker) { capture = 1 }
+    capture { print }
+    capture && index($0, "[[ -f \"$image_artifact\" ]]") { complete = 1; exit }
+    END { if (!capture || !complete) exit 1 }
+  ' "$file")" || fail "$label full-image section" "unable to extract full-build region"
+
+  grep -Fq 'source build/envsetup.sh' <<<"$section" \
+    || fail "$label full-image envsetup" "full-build region lacks envsetup"
+  grep -Fq 'lunch aosp_cf_x86_64_phone-trunk_staging-userdebug' <<<"$section" \
+    || fail "$label full-image lunch target" "full-build region lacks lunch target"
+  grep -Eq '^[[:space:]]*m[[:space:]]*$' <<<"$section" \
+    || fail "$label full-image compile target" "full-build region lacks standalone m"
+}
+
+services="$ROOT/.zcode/skills/build-services-jar/SKILL.md"
+sepolicy="$ROOT/.zcode/skills/build-sepolicy/SKILL.md"
+services_description='Build and deploy AOSP services.jar after changes under frameworks/base/services, including SystemServer services; use for compile targets, artifacts, push steps, ART cache risks, and feature verification.'
+sepolicy_description='Build and verify AOSP SELinux policy after changes under system/sepolicy, especially new system services requiring service_contexts, service types, allow rules, denial checks, and full feature verification.'
+
+require_file "$services" 'build-services-jar skill artifact'
+check_frontmatter "$services" build-services-jar "$services_description" 'build-services-jar'
+reject_regex "$services" '^[[:space:]]*paths:|automatic(ally)?[[:space:]-]+activat|auto-activat|自动激活' 'build-services-jar activation claim'
+require_text "$services" '/build-services-jar' 'build-services-jar explicit selection'
+require_text "$services" 'AGENTS.md' 'build-services-jar AGENTS routing'
+require_text "$services" 'frontmatter description' 'build-services-jar implicit selection'
+require_text "$services" 'File paths alone do not select skills.' 'build-services-jar path selection accuracy'
+require_text "$services" 'bash -c' 'build-services-jar Bash invocation'
+require_text "$services" 'source build/envsetup.sh' 'build-services-jar envsetup command'
+require_text "$services" 'lunch aosp_cf_x86_64_phone-trunk_staging-userdebug' 'build-services-jar lunch target'
+require_text "$services" 'm services' 'build-services-jar compile target'
+require_text "$services" 'same exec session' 'build-services-jar retained exec session'
+require_text "$services" 'build_log="$(mktemp "${TMPDIR:-/tmp}/build-services.XXXXXX.log")"' 'build-services-jar unique build log'
+require_text "$services" 'while kill -0 "$build_pid" 2>/dev/null; do' 'build-services-jar in-session polling'
+require_text "$services" 'wait "$build_pid"' 'build-services-jar retained child wait'
+require_text "$services" 'build_rc=$?' 'build-services-jar child exit status'
+require_text "$services" '[[ "$build_rc" -ne 0 ]]' 'build-services-jar failed build handling'
+require_text "$services" '#### build completed successfully' 'build-services-jar success marker'
+require_text "$services" 'out/target/product/vsoc_x86_64/system/framework/services.jar' 'build-services-jar artifact path'
+require_text "$services" '[[ -f "$artifact" ]]' 'build-services-jar artifact check'
+require_text "$services" 'target device' 'build-services-jar ADB target warning'
+require_text "$services" 'change device state' 'build-services-jar ADB state warning'
+reject_regex "$services" '^[[:space:]]*adb[[:space:]]+(root|remount|push|reboot)' 'build-services-jar bare ADB command'
+require_text "$services" 'device_serial="${ANDROID_SERIAL-}"' 'build-services-jar ANDROID_SERIAL pin'
+require_text "$services" 'adb -s "$device_serial" get-state' 'build-services-jar pinned get-state'
+require_text "$services" 'adb -s "$device_serial" root' 'build-services-jar pinned adb root'
+require_text "$services" 'adb -s "$device_serial" remount' 'build-services-jar pinned adb remount'
+require_text "$services" 'adb -s "$device_serial" push' 'build-services-jar pinned adb push'
+require_text "$services" 'adb -s "$device_serial" reboot' 'build-services-jar pinned adb reboot'
+require_text "$services" 'ART' 'build-services-jar ART cache guidance'
+require_text "$services" 'dexpreopt' 'build-services-jar dexpreopt guidance'
+require_text "$services" '/data/dalvik-cache/' 'build-services-jar dalvik cache recovery'
+require_text "$services" 'full_build_log="$(mktemp "${TMPDIR:-/tmp}/build-full-services.XXXXXX.log")"' 'build-services-jar retained full-image build'
+require_text "$services" 'full_build_pid=$!' 'build-services-jar full-image background child'
+require_text "$services" 'while kill -0 "$full_build_pid" 2>/dev/null; do' 'build-services-jar full-image polling'
+require_text "$services" 'wait "$full_build_pid"' 'build-services-jar full-image child wait'
+require_text "$services" 'full_build_rc=$?' 'build-services-jar full-image exit status'
+require_text "$services" '[[ "$full_build_rc" -ne 0 ]]' 'build-services-jar full-image failure handling'
+require_text "$services" 'grep -Fq "#### build completed successfully" "$full_build_log"' 'build-services-jar full-image success marker'
+require_text "$services" 'image_artifact="out/target/product/vsoc_x86_64/system.img"' 'build-services-jar full-image artifact'
+require_text "$services" '[[ -f "$image_artifact" ]]' 'build-services-jar full-image artifact check'
+check_full_build_section "$services" 'build-full-services.XXXXXX.log' 'build-services-jar'
+require_text "$services" 'cvd fleet' 'build-services-jar fleet inspection'
+require_text "$services" 'cvd_group="${CVD_GROUP:?Set CVD_GROUP to the explicitly confirmed group from cvd fleet}"' 'build-services-jar CVD group pin'
+reject_regex "$services" '^[[:space:]]*cvd[[:space:]]+(stop|start)' 'build-services-jar CVD group selector'
+require_text "$services" 'cvd --group_name="$cvd_group" stop' 'build-services-jar selected CVD stop'
+require_text "$services" 'cvd --group_name="$cvd_group" start' 'build-services-jar selected CVD start'
+require_text "$services" 'm update-api' 'build-services-jar update-api guidance'
+require_text "$services" 'SELinux' 'build-services-jar SELinux dependency'
+require_text "$services" 'verify-*.sh' 'build-services-jar feature verification'
+require_text "$services" 'RESULT PASS' 'build-services-jar pass criterion'
+echo "PASS  build-services-jar skill 工件完整"
+
+require_file "$sepolicy" 'build-sepolicy skill artifact'
+check_frontmatter "$sepolicy" build-sepolicy "$sepolicy_description" 'build-sepolicy'
+reject_regex "$sepolicy" '^[[:space:]]*paths:|automatic(ally)?[[:space:]-]+activat|auto-activat|自动激活' 'build-sepolicy activation claim'
+require_text "$sepolicy" '/build-sepolicy' 'build-sepolicy explicit selection'
+require_text "$sepolicy" 'AGENTS.md' 'build-sepolicy AGENTS routing'
+require_text "$sepolicy" 'frontmatter description' 'build-sepolicy implicit selection'
+require_text "$sepolicy" 'File paths alone do not select skills.' 'build-sepolicy path selection accuracy'
+require_text "$sepolicy" 'bash -c' 'build-sepolicy Bash invocation'
+require_text "$sepolicy" 'source build/envsetup.sh' 'build-sepolicy envsetup command'
+require_text "$sepolicy" 'lunch aosp_cf_x86_64_phone-trunk_staging-userdebug' 'build-sepolicy lunch target'
+require_text "$sepolicy" 'm selinux_policy' 'build-sepolicy compile target'
+require_text "$sepolicy" 'same exec session' 'build-sepolicy retained exec session'
+require_text "$sepolicy" 'build_log="$(mktemp "${TMPDIR:-/tmp}/build-sepolicy.XXXXXX.log")"' 'build-sepolicy unique build log'
+require_text "$sepolicy" 'while kill -0 "$build_pid" 2>/dev/null; do' 'build-sepolicy in-session polling'
+require_text "$sepolicy" 'wait "$build_pid"' 'build-sepolicy retained child wait'
+require_text "$sepolicy" 'build_rc=$?' 'build-sepolicy child exit status'
+require_text "$sepolicy" '[[ "$build_rc" -ne 0 ]]' 'build-sepolicy failed build handling'
+require_text "$sepolicy" '#### build completed successfully' 'build-sepolicy success marker'
+require_text "$sepolicy" 'out/target/product/vsoc_x86_64/system/etc/selinux/plat_sepolicy.cil' 'build-sepolicy artifact path'
+require_text "$sepolicy" '[[ -f "$artifact" ]]' 'build-sepolicy artifact check'
+require_text "$sepolicy" 'service_contexts' 'build-sepolicy service context mapping'
+require_text "$sepolicy" 'service_manager_type' 'build-sepolicy service type guidance'
+reject_text "$sepolicy" 'allow system_server sidebar_service:service_manager { add find };' 'build-sepolicy raw system_server allow'
+require_text "$sepolicy" 'type sidebar_service, system_server_service, service_manager_type;' 'build-sepolicy canonical SystemServer service type'
+require_text "$sepolicy" 'The system_server_service attribute is consumed by add_service(system_server, system_server_service).' 'build-sepolicy SystemServer registration guidance'
+require_text "$sepolicy" 'allow sidebar_app sidebar_service:service_manager find;' 'build-sepolicy client service-manager find permission'
+require_text "$sepolicy" 'avc: denied' 'build-sepolicy denial check'
+require_text "$sepolicy" 'service list' 'build-sepolicy service registration check'
+require_text "$sepolicy" 'full image' 'build-sepolicy full-image deployment'
+require_text "$sepolicy" 'full_build_log="$(mktemp "${TMPDIR:-/tmp}/build-full-sepolicy.XXXXXX.log")"' 'build-sepolicy retained full-image build'
+require_text "$sepolicy" 'full_build_pid=$!' 'build-sepolicy full-image background child'
+require_text "$sepolicy" 'while kill -0 "$full_build_pid" 2>/dev/null; do' 'build-sepolicy full-image polling'
+require_text "$sepolicy" 'wait "$full_build_pid"' 'build-sepolicy full-image child wait'
+require_text "$sepolicy" 'full_build_rc=$?' 'build-sepolicy full-image exit status'
+require_text "$sepolicy" '[[ "$full_build_rc" -ne 0 ]]' 'build-sepolicy full-image failure handling'
+require_text "$sepolicy" 'grep -Fq "#### build completed successfully" "$full_build_log"' 'build-sepolicy full-image success marker'
+require_text "$sepolicy" 'image_artifact="out/target/product/vsoc_x86_64/system.img"' 'build-sepolicy full-image artifact'
+require_text "$sepolicy" '[[ -f "$image_artifact" ]]' 'build-sepolicy full-image artifact check'
+check_full_build_section "$sepolicy" 'build-full-sepolicy.XXXXXX.log' 'build-sepolicy'
+require_text "$sepolicy" 'cvd fleet' 'build-sepolicy fleet inspection'
+require_text "$sepolicy" 'cvd_group="${CVD_GROUP:?Set CVD_GROUP to the explicitly confirmed group from cvd fleet}"' 'build-sepolicy CVD group pin'
+reject_regex "$sepolicy" '^[[:space:]]*cvd[[:space:]]+(stop|start)' 'build-sepolicy CVD group selector'
+require_text "$sepolicy" 'cvd --group_name="$cvd_group" stop' 'build-sepolicy selected CVD stop'
+require_text "$sepolicy" 'cvd --group_name="$cvd_group" start' 'build-sepolicy selected CVD start'
+require_text "$sepolicy" 'not a services.jar push' 'build-sepolicy jar-push warning'
+reject_regex "$sepolicy" '^[[:space:]]*adb[[:space:]]+shell[[:space:]]+(dmesg|service)' 'build-sepolicy bare ADB command'
+require_text "$sepolicy" 'device_serial="${ANDROID_SERIAL:?Set ANDROID_SERIAL to the explicitly confirmed target serial}"' 'build-sepolicy ANDROID_SERIAL pin'
+require_text "$sepolicy" 'adb -s "$device_serial" get-state' 'build-sepolicy pinned get-state'
+require_text "$sepolicy" 'adb -s "$device_serial" shell dmesg' 'build-sepolicy pinned denial query'
+require_text "$sepolicy" 'adb -s "$device_serial" shell service list' 'build-sepolicy pinned service query'
+require_text "$sepolicy" 'verify-*.sh' 'build-sepolicy feature verification'
+require_text "$sepolicy" 'RESULT PASS' 'build-sepolicy pass criterion'
+echo "PASS  build-sepolicy skill 工件完整"
+
+echo "RESULT PASS"

@@ -13,17 +13,25 @@ import tempfile
 root = Path(sys.argv[1])
 with tempfile.TemporaryDirectory(prefix='harness-docs-') as temporary:
     fixture = Path(temporary)
-    for directory in ('scripts', 'docs', 'claude-code', 'codex'):
+    for directory in ('scripts', 'docs', 'claude-code', 'codex', 'cursor-agent', 'zcode'):
         (fixture / directory).mkdir()
     shutil.copy2(root / 'scripts/check-docs.sh', fixture / 'scripts/check-docs.sh')
     (fixture / 'README.md').write_text(
         'bash scripts/check.sh --offline\nbash claude-code/run-demo.sh\n'
-        'bash codex/run-demo.sh\nclaude-code/README.md\ncodex/README.md\nRESULT PASS\n')
-    for client in ('claude', 'codex'):
-        directory = 'claude-code' if client == 'claude' else client
+        'bash codex/run-demo.sh\nbash cursor-agent/run-demo.sh\n'
+        'bash zcode/run-demo.sh\n'
+        'claude-code/README.md\ncodex/README.md\ncursor-agent/README.md\n'
+        'zcode/README.md\nRESULT PASS\n')
+    articles = {
+        'claude-code': 'AOSP整机源码Harness工程探索-claude版.md',
+        'codex': 'AOSP整机源码Harness工程探索-codex版.md',
+        'cursor-agent': 'AOSP整机源码Harness工程探索-cursor-agent版.md',
+        'zcode': 'AOSP整机源码Harness工程探索-zcode版.md',
+    }
+    for directory, article in articles.items():
         (fixture / directory / 'README.md').write_text(
-            f'[article](../docs/AOSP整机源码Harness工程探索-{client}版.md)\n')
-        (fixture / 'docs' / f'AOSP整机源码Harness工程探索-{client}版.md').touch()
+            f'[article](../docs/{article})\n')
+        (fixture / 'docs' / article).touch()
         entry = fixture / directory / 'run-demo.sh'
         entry.touch()
         entry.chmod(0o755)
